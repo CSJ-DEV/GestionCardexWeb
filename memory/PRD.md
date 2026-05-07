@@ -76,3 +76,24 @@ Voir `/app/memory/test_credentials.md`
 - `Registre97.rpt` (P0)
 - `ListeDetBar.rpt`, `ListeDetDist.rpt`, `ListeDetReg.rpt`, `ListeSom.rpt`
 ⚠️ Format binaire SAP non parsable directement — requis : PDF d'exemple OU liste colonnes/groupes/totaux OU requêtes SQL.
+
+## Phase 2b — Frontend Méga + Inhabilité (2026-05-07)
+**Implémenté** :
+- `AvocatSheet` passe à **4 onglets** : Identification / Adresses / Inhabilité / Méga
+- **Onglet Inhabilité** : tableau des périodes (datedeb → datefin), formulaire inline avec date pickers HTML5 (`type="date"`), commentaire, CRUD complet via API `/avocats/{id}/inhabilites`
+- **Onglet Méga** :
+  - Section barreau, expérience (input number), date inscription
+  - Switches Français / Anglais + champ texte « Autres langues »
+  - 3 switches Articles 486 / 672 / 684
+  - Liste 18 districts du Québec (Montréal, Québec, Laval, etc.) en checkboxes scrollables + switch « Tous » (sélection rapide)
+  - Détails + Commentaire (textarea)
+  - Bouton « Enregistrer le profil Méga » → PUT upsert
+- **Onglets désactivés** tant que l'avocat n'est pas créé (Adresses / Inhabilité / Méga)
+- **Mode lecture seule** respecté (`lecteur` voit tout en disabled)
+- Lint JS : 0 erreur, webpack compilation : OK
+
+**Captures validées** : login + sidebar dynamique + page Utilisateurs + ouverture du Sheet avec les 4 onglets visibles et activables.
+
+## Phase 3 (à venir)
+- Onglet **Web** (codes usager + mots de passe — `frmMotPasse` du VB)
+- **Rapports PDF** (Registre97 + ListeDetBar + ListeDetDist + ListeDetReg + ListeSom) — *requiert PDF d'exemple ou descriptions de colonnes pour chaque rapport*

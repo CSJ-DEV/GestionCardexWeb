@@ -40,6 +40,10 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     const [saving, setSaving] = useState(false);
     const [adresses, setAdresses] = useState([]);
     const [editAdr, setEditAdr] = useState(null);
+    const [inhabs, setInhabs] = useState([]);
+    const [editInhab, setEditInhab] = useState(null);
+    const [mega, setMega] = useState({ sectbar: "", francais: true, anglais: false, autres: "", experience: 0, details: "", art486: false, art672: false, art684: false, commentaire: "", dateinsc: "", districts: [], tous_districts: false });
+    const [megaSaving, setMegaSaving] = useState(false);
 
     useEffect(() => {
         if (avocat?.id) {
@@ -134,11 +138,15 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                 </SheetHeader>
 
                 <Tabs defaultValue="ident" className="mt-6">
-                    <TabsList className="grid grid-cols-2 w-full">
+                    <TabsList className="grid grid-cols-4 w-full">
                         <TabsTrigger value="ident" data-testid="tab-ident">Identification</TabsTrigger>
                         <TabsTrigger value="adr" disabled={!isEditing} data-testid="tab-adr">
                             Adresses {adresses.length > 0 && `(${adresses.length})`}
                         </TabsTrigger>
+                        <TabsTrigger value="inhab" disabled={!isEditing} data-testid="tab-inhab">
+                            Inhabilité {inhabs.length > 0 && `(${inhabs.length})`}
+                        </TabsTrigger>
+                        <TabsTrigger value="mega" disabled={!isEditing} data-testid="tab-mega">Méga</TabsTrigger>
                     </TabsList>
 
                     {/* IDENTIFICATION */}
@@ -282,6 +290,103 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                                     <Button variant="outline" onClick={() => setEditAdr(null)} className="rounded-md">Annuler</Button>
                                     <Button onClick={saveAdresse} className="rounded-md bg-[#0033A0] hover:bg-[#002277] text-white" data-testid="save-adresse-btn">Enregistrer</Button>
                                 </div>
+                            </div>
+                        )}
+                    </TabsContent>
+
+                    {/* INHABILITÉ */}
+                    <TabsContent value="inhab" className="mt-6 space-y-4">
+                        {!readOnly && (
+                            <Button onClick={() => setEditInhab({ datedeb: "", datefin: "", comm: "" })} className="rounded-md bg-[#0033A0] hover:bg-[#002277] text-white" data-testid="add-inhab-btn">
+                                <Plus size={14} className="mr-2" /> Nouvelle période
+                            </Button>
+                        )}
+                        <div className="space-y-2">
+                            {inhabs.length === 0 ? (
+                                <div className="text-sm text-slate-500 text-center py-8 border border-dashed border-slate-300 rounded-md">
+                                    Aucune période d'inhabilité.
+                                </div>
+                            ) : (
+                                inhabs.map((it) => (
+                                    <div key={it.id} className="border border-slate-200 rounded-md p-3 flex items-start justify-between" data-testid={`inhab-row-${it.id}`}>
+                                        <div className="flex-1">
+                                            <div className="font-medium text-slate-900">{it.datedeb} → {it.datefin || "en cours"}</div>
+                                            {it.comm && <div className="text-xs text-slate-600 mt-1">{it.comm}</div>}
+                                        </div>
+                                        {!readOnly && (
+                                            <div className="flex gap-1">
+                                                <Button variant="ghost" size="icon" onClick={() => setEditInhab(it)}><Pencil size={14} /></Button>
+                                                <Button variant="ghost" size="icon" className="text-red-600" onClick={() => deleteInhab(it)}><Trash2 size={14} /></Button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        {editInhab && (
+                            <div className="border-2 border-[#0033A0] rounded-md p-4 space-y-3 bg-blue-50/30">
+                                <div className="font-semibold text-sm">{editInhab.id ? "Modifier la période" : "Nouvelle période"}</div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <F label="Date début"><Input type="date" value={editInhab.datedeb || ""} onChange={(e) => setEditInhab({ ...editInhab, datedeb: e.target.value })} className="rounded-md" data-testid="inhab-datedeb" /></F>
+                                    <F label="Date fin"><Input type="date" value={editInhab.datefin || ""} onChange={(e) => setEditInhab({ ...editInhab, datefin: e.target.value })} className="rounded-md" data-testid="inhab-datefin" /></F>
+                                </div>
+                                <F label="Commentaire"><Textarea value={editInhab.comm || ""} onChange={(e) => setEditInhab({ ...editInhab, comm: e.target.value })} rows={3} className="rounded-md" /></F>
+                                <div className="flex justify-end gap-2">
+                                    <Button variant="outline" onClick={() => setEditInhab(null)}>Annuler</Button>
+                                    <Button onClick={saveInhab} className="bg-[#0033A0] hover:bg-[#002277] text-white" data-testid="save-inhab-btn">Enregistrer</Button>
+                                </div>
+                            </div>
+                        )}
+                    </TabsContent>
+
+                    {/* MÉGA */}
+                    <TabsContent value="mega" className="mt-6 space-y-5">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <F label="Section barreau"><Input value={mega.sectbar || ""} onChange={(e) => setMega({ ...mega, sectbar: e.target.value })} disabled={readOnly} className="rounded-md" data-testid="mega-sectbar" /></F>
+                            <F label="Expérience (années)"><Input type="number" min="0" value={mega.experience || 0} onChange={(e) => setMega({ ...mega, experience: parseInt(e.target.value) || 0 })} disabled={readOnly} className="rounded-md" data-testid="mega-experience" /></F>
+                            <F label="Date inscription"><Input type="date" value={mega.dateinsc || ""} onChange={(e) => setMega({ ...mega, dateinsc: e.target.value })} disabled={readOnly} className="rounded-md" /></F>
+                        </div>
+                        <Separator />
+                        <div>
+                            <div className="overline mb-3">Langues</div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex items-center justify-between border border-slate-200 rounded-md px-3 py-2"><Label className="text-sm">Français</Label><Switch checked={!!mega.francais} onCheckedChange={(v) => setMega({ ...mega, francais: v })} disabled={readOnly} data-testid="mega-francais" /></div>
+                                <div className="flex items-center justify-between border border-slate-200 rounded-md px-3 py-2"><Label className="text-sm">Anglais</Label><Switch checked={!!mega.anglais} onCheckedChange={(v) => setMega({ ...mega, anglais: v })} disabled={readOnly} data-testid="mega-anglais" /></div>
+                            </div>
+                            <div className="mt-3"><F label="Autres langues"><Input value={mega.autres || ""} onChange={(e) => setMega({ ...mega, autres: e.target.value })} disabled={readOnly} placeholder="Espagnol, italien…" className="rounded-md" /></F></div>
+                        </div>
+                        <Separator />
+                        <div>
+                            <div className="overline mb-3">Articles habilités</div>
+                            <div className="grid grid-cols-3 gap-3">
+                                {[{k:"art486",l:"Article 486"},{k:"art672",l:"Article 672"},{k:"art684",l:"Article 684"}].map((a) => (
+                                    <div key={a.k} className="flex items-center justify-between border border-slate-200 rounded-md px-3 py-2"><Label className="text-sm">{a.l}</Label><Switch checked={!!mega[a.k]} onCheckedChange={(v) => setMega({ ...mega, [a.k]: v })} disabled={readOnly} data-testid={`mega-${a.k}`} /></div>
+                                ))}
+                            </div>
+                        </div>
+                        <Separator />
+                        <div>
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="overline">Districts habilités ({(mega.districts || []).length})</div>
+                                <div className="flex items-center gap-2"><Label className="text-xs text-slate-600">Tous</Label><Switch checked={!!mega.tous_districts} onCheckedChange={(v) => setMega({ ...mega, tous_districts: v, districts: v ? QC_DISTRICTS.map((d) => d.id) : [] })} disabled={readOnly} data-testid="mega-tous-districts" /></div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-56 overflow-y-auto border border-slate-200 rounded-md p-3">
+                                {QC_DISTRICTS.map((d) => (
+                                    <label key={d.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 rounded px-2 py-1">
+                                        <input type="checkbox" checked={(mega.districts || []).includes(d.id)} onChange={() => toggleDistrict(d.id)} disabled={readOnly} data-testid={`mega-district-${d.id}`} />
+                                        <span>{d.nom}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                        <Separator />
+                        <F label="Détails"><Textarea value={mega.details || ""} onChange={(e) => setMega({ ...mega, details: e.target.value })} disabled={readOnly} rows={3} className="rounded-md" /></F>
+                        <F label="Commentaire"><Textarea value={mega.commentaire || ""} onChange={(e) => setMega({ ...mega, commentaire: e.target.value })} disabled={readOnly} rows={3} className="rounded-md" /></F>
+                        {!readOnly && (
+                            <div className="flex justify-end pt-2">
+                                <Button onClick={saveMega} disabled={megaSaving} className="bg-[#0033A0] hover:bg-[#002277] text-white rounded-md" data-testid="save-mega-btn">
+                                    {megaSaving ? "Enregistrement…" : "Enregistrer le profil Méga"}
+                                </Button>
                             </div>
                         )}
                     </TabsContent>

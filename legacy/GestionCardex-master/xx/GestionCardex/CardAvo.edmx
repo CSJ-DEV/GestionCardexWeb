@@ -1,0 +1,412 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="2.0" xmlns:edmx="http://schemas.microsoft.com/ado/2008/10/edmx">
+  <!-- EF Runtime content -->
+  <edmx:Runtime>
+    <!-- SSDL content -->
+    <edmx:StorageModels>
+      <Schema Namespace="CardAvoModel.Store" Alias="Self" Provider="System.Data.SqlClient" ProviderManifestToken="2008" xmlns:store="http://schemas.microsoft.com/ado/2007/12/edm/EntityStoreSchemaGenerator" xmlns="http://schemas.microsoft.com/ado/2009/02/edm/ssdl">
+        <EntityContainer Name="CardAvoModelStoreContainer">
+          <EntitySet Name="Adresses" EntityType="CardAvoModel.Store.Adresses" store:Type="Tables" Schema="dbo" />
+          <EntitySet Name="Avocats" EntityType="CardAvoModel.Store.Avocats" store:Type="Tables" Schema="dbo" />
+          <EntitySet Name="infodistrict" EntityType="CardAvoModel.Store.infodistrict" store:Type="Tables" store:Schema="dbo" store:Name="infodistrict">
+            <DefiningQuery>SELECT 
+      [infodistrict].[code] AS [code], 
+      [infodistrict].[nodist] AS [nodist]
+      FROM [dbo].[infodistrict] AS [infodistrict]</DefiningQuery>
+          </EntitySet>
+          <EntitySet Name="infomega" EntityType="CardAvoModel.Store.infomega" store:Type="Tables" store:Schema="dbo" store:Name="infomega">
+            <DefiningQuery>SELECT 
+      [infomega].[code] AS [code], 
+      [infomega].[francais] AS [francais], 
+      [infomega].[anglais] AS [anglais], 
+      [infomega].[autres] AS [autres], 
+      [infomega].[experience] AS [experience], 
+      [infomega].[details] AS [details], 
+      [infomega].[mega] AS [mega], 
+      [infomega].[tarification] AS [tarification], 
+      [infomega].[art486] AS [art486], 
+      [infomega].[art672] AS [art672], 
+      [infomega].[art684] AS [art684], 
+      [infomega].[districthab] AS [districthab], 
+      [infomega].[commentaire] AS [commentaire], 
+      [infomega].[dateinsc] AS [dateinsc], 
+      [infomega].[usermodif] AS [usermodif], 
+      [infomega].[datemodif] AS [datemodif], 
+      [infomega].[sectbar] AS [sectbar]
+      FROM [dbo].[infomega] AS [infomega]</DefiningQuery>
+          </EntitySet>
+          <EntitySet Name="inhpra" EntityType="CardAvoModel.Store.inhpra" store:Type="Tables" store:Schema="dbo" store:Name="inhpra">
+            <DefiningQuery>SELECT 
+      [inhpra].[code] AS [code], 
+      [inhpra].[datedeb] AS [datedeb], 
+      [inhpra].[datefin] AS [datefin], 
+      [inhpra].[comm] AS [comm]
+      FROM [dbo].[inhpra] AS [inhpra]</DefiningQuery>
+          </EntitySet>
+          <EntitySet Name="lettremega" EntityType="CardAvoModel.Store.lettremega" store:Type="Tables" store:Schema="dbo" store:Name="lettremega">
+            <DefiningQuery>SELECT 
+      [lettremega].[codeavo] AS [codeavo], 
+      [lettremega].[dateenvoi] AS [dateenvoi], 
+      [lettremega].[datereception] AS [datereception]
+      FROM [dbo].[lettremega] AS [lettremega]</DefiningQuery>
+          </EntitySet>
+        </EntityContainer>
+        <EntityType Name="Adresses">
+          <Key>
+            <PropertyRef Name="RowId" />
+          </Key>
+          <Property Name="code" Type="char" Nullable="false" MaxLength="6" />
+          <Property Name="adresse" Type="varchar" MaxLength="100" />
+          <Property Name="ville" Type="varchar" MaxLength="40" />
+          <Property Name="province" Type="varchar" MaxLength="20" />
+          <Property Name="codepostal" Type="char" MaxLength="7" />
+          <Property Name="telephone" Type="char" MaxLength="15" />
+          <Property Name="telephone2" Type="char" MaxLength="15" />
+          <Property Name="fax" Type="char" MaxLength="15" />
+          <Property Name="adremail" Type="varchar" MaxLength="50" />
+          <Property Name="noseq" Type="int" />
+          <Property Name="adresse2" Type="varchar" MaxLength="30" />
+          <Property Name="adresse3" Type="varchar" MaxLength="30" />
+          <Property Name="courant" Type="char" MaxLength="1" />
+          <Property Name="dateadr" Type="smalldatetime" />
+          <Property Name="poste1" Type="char" MaxLength="6" />
+          <Property Name="poste2" Type="char" MaxLength="6" />
+          <Property Name="RowId" Type="uniqueidentifier" Nullable="false" />
+        </EntityType>
+        <EntityType Name="Avocats">
+          <Key>
+            <PropertyRef Name="code" />
+          </Key>
+          <Property Name="code" Type="char" Nullable="false" MaxLength="6" />
+          <Property Name="sectbar" Type="varchar" MaxLength="100" />
+          <Property Name="mega" Type="char" MaxLength="1" />
+          <Property Name="nom" Type="varchar" Nullable="false" MaxLength="50" />
+          <Property Name="prenom" Type="varchar" Nullable="false" MaxLength="50" />
+          <Property Name="actpass" Type="char" Nullable="false" MaxLength="1" />
+          <Property Name="dateinscbarr" Type="char" MaxLength="10" />
+          <Property Name="payable" Type="char" MaxLength="1" />
+          <Property Name="adrcour" Type="int" />
+          <Property Name="adrnonpay" Type="int" />
+          <Property Name="codebar" Type="char" MaxLength="10" />
+          <Property Name="comm" Type="varchar" MaxLength="500" />
+          <Property Name="datemodif" Type="smalldatetime" />
+          <Property Name="nas" Type="char" MaxLength="9" />
+          <Property Name="depodirect" Type="char" MaxLength="1" />
+          <Property Name="codeusager" Type="char" MaxLength="6" />
+          <Property Name="motpasse1" Type="char" MaxLength="8" />
+          <Property Name="motpasse2" Type="char" MaxLength="8" />
+          <Property Name="factweb" Type="char" MaxLength="1" />
+          <Property Name="confweb" Type="char" MaxLength="1" />
+          <Property Name="villeref" Type="varchar" MaxLength="40" />
+          <Property Name="usermodif" Type="varchar" MaxLength="20" />
+          <Property Name="surveil" Type="char" Nullable="false" MaxLength="1" />
+          <Property Name="neq" Type="char" MaxLength="10" />
+        </EntityType>
+        <!--Erreurs détectées durant la génération :
+      Avertissement 6002: La table/vue « CardAvo.dbo.infodistrict » n'a pas de clé primaire définie. La clé a été déduite et la définition a été créée en tant que table/vue en lecture seule.
+      -->
+        <EntityType Name="infodistrict">
+          <Key>
+            <PropertyRef Name="code" />
+          </Key>
+          <Property Name="code" Type="char" Nullable="false" MaxLength="6" />
+          <Property Name="nodist" Type="int" Nullable="false" />
+        </EntityType>
+        <!--Erreurs détectées durant la génération :
+      Avertissement 6002: La table/vue « CardAvo.dbo.infomega » n'a pas de clé primaire définie. La clé a été déduite et la définition a été créée en tant que table/vue en lecture seule.
+      -->
+        <EntityType Name="infomega">
+          <Key>
+            <PropertyRef Name="code" />
+          </Key>
+          <Property Name="code" Type="char" Nullable="false" MaxLength="6" />
+          <Property Name="francais" Type="char" Nullable="false" MaxLength="1" />
+          <Property Name="anglais" Type="char" Nullable="false" MaxLength="1" />
+          <Property Name="autres" Type="char" Nullable="false" MaxLength="40" />
+          <Property Name="experience" Type="int" Nullable="false" />
+          <Property Name="details" Type="varchar" Nullable="false" MaxLength="500" />
+          <Property Name="mega" Type="char" Nullable="false" MaxLength="1" />
+          <Property Name="tarification" Type="char" Nullable="false" MaxLength="1" />
+          <Property Name="art486" Type="char" Nullable="false" MaxLength="1" />
+          <Property Name="art672" Type="char" Nullable="false" MaxLength="1" />
+          <Property Name="art684" Type="char" Nullable="false" MaxLength="1" />
+          <Property Name="districthab" Type="char" Nullable="false" MaxLength="100" />
+          <Property Name="commentaire" Type="varchar" Nullable="false" MaxLength="5000" />
+          <Property Name="dateinsc" Type="datetime" Nullable="false" />
+          <Property Name="usermodif" Type="char" Nullable="false" MaxLength="20" />
+          <Property Name="datemodif" Type="datetime" />
+          <Property Name="sectbar" Type="varchar" MaxLength="100" />
+        </EntityType>
+        <!--Erreurs détectées durant la génération :
+      Avertissement 6002: La table/vue « CardAvo.dbo.inhpra » n'a pas de clé primaire définie. La clé a été déduite et la définition a été créée en tant que table/vue en lecture seule.
+      -->
+        <EntityType Name="inhpra">
+          <Key>
+            <PropertyRef Name="code" />
+          </Key>
+          <Property Name="code" Type="char" Nullable="false" MaxLength="6" />
+          <Property Name="datedeb" Type="smalldatetime" Nullable="false" />
+          <Property Name="datefin" Type="smalldatetime" Nullable="false" />
+          <Property Name="comm" Type="text" />
+        </EntityType>
+        <!--Erreurs détectées durant la génération :
+      Avertissement 6002: La table/vue « CardAvo.dbo.lettremega » n'a pas de clé primaire définie. La clé a été déduite et la définition a été créée en tant que table/vue en lecture seule.
+      -->
+        <EntityType Name="lettremega">
+          <Key>
+            <PropertyRef Name="codeavo" />
+          </Key>
+          <Property Name="codeavo" Type="nvarchar" Nullable="false" MaxLength="255" />
+          <Property Name="dateenvoi" Type="datetime" Nullable="false" />
+          <Property Name="datereception" Type="datetime" />
+        </EntityType>
+      </Schema>
+    </edmx:StorageModels>
+    <!-- CSDL content -->
+    <edmx:ConceptualModels>
+      <Schema Namespace="CardAvoModel" Alias="Self" xmlns:annotation="http://schemas.microsoft.com/ado/2009/02/edm/annotation" xmlns="http://schemas.microsoft.com/ado/2008/09/edm">
+        <EntityContainer Name="CardAvoEntities" annotation:LazyLoadingEnabled="true">
+          <EntitySet Name="Adresses" EntityType="CardAvoModel.Adresses" />
+          <EntitySet Name="Avocats" EntityType="CardAvoModel.Avocats" />
+          <EntitySet Name="infodistrict" EntityType="CardAvoModel.infodistrict" />
+          <EntitySet Name="infomega" EntityType="CardAvoModel.infomega" />
+          <EntitySet Name="inhpra" EntityType="CardAvoModel.inhpra" />
+          <EntitySet Name="lettremega" EntityType="CardAvoModel.lettremega" />
+        </EntityContainer>
+        <EntityType Name="Adresses">
+          <Key>
+            <PropertyRef Name="RowId" />
+          </Key>
+          <Property Name="code" Type="String" Nullable="false" MaxLength="6" Unicode="false" FixedLength="true" />
+          <Property Name="adresse" Type="String" MaxLength="100" Unicode="false" FixedLength="false" />
+          <Property Name="ville" Type="String" MaxLength="40" Unicode="false" FixedLength="false" />
+          <Property Name="province" Type="String" MaxLength="20" Unicode="false" FixedLength="false" />
+          <Property Name="codepostal" Type="String" MaxLength="7" Unicode="false" FixedLength="true" />
+          <Property Name="telephone" Type="String" MaxLength="15" Unicode="false" FixedLength="true" />
+          <Property Name="telephone2" Type="String" MaxLength="15" Unicode="false" FixedLength="true" />
+          <Property Name="fax" Type="String" MaxLength="15" Unicode="false" FixedLength="true" />
+          <Property Name="adremail" Type="String" MaxLength="50" Unicode="false" FixedLength="false" />
+          <Property Name="noseq" Type="Int32" />
+          <Property Name="adresse2" Type="String" MaxLength="30" Unicode="false" FixedLength="false" />
+          <Property Name="adresse3" Type="String" MaxLength="30" Unicode="false" FixedLength="false" />
+          <Property Name="courant" Type="String" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="dateadr" Type="DateTime" />
+          <Property Name="poste1" Type="String" MaxLength="6" Unicode="false" FixedLength="true" />
+          <Property Name="poste2" Type="String" MaxLength="6" Unicode="false" FixedLength="true" />
+          <Property Name="RowId" Type="Guid" Nullable="false" />
+        </EntityType>
+        <EntityType Name="Avocats">
+          <Key>
+            <PropertyRef Name="code" />
+          </Key>
+          <Property Name="code" Type="String" Nullable="false" MaxLength="6" Unicode="false" FixedLength="true" />
+          <Property Name="sectbar" Type="String" MaxLength="100" Unicode="false" FixedLength="false" />
+          <Property Name="mega" Type="String" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="nom" Type="String" Nullable="false" MaxLength="50" Unicode="false" FixedLength="false" />
+          <Property Name="prenom" Type="String" Nullable="false" MaxLength="50" Unicode="false" FixedLength="false" />
+          <Property Name="actpass" Type="String" Nullable="false" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="dateinscbarr" Type="String" MaxLength="10" Unicode="false" FixedLength="true" />
+          <Property Name="payable" Type="String" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="adrcour" Type="Int32" />
+          <Property Name="adrnonpay" Type="Int32" />
+          <Property Name="codebar" Type="String" MaxLength="10" Unicode="false" FixedLength="true" />
+          <Property Name="comm" Type="String" MaxLength="500" Unicode="false" FixedLength="false" />
+          <Property Name="datemodif" Type="DateTime" />
+          <Property Name="nas" Type="String" MaxLength="9" Unicode="false" FixedLength="true" />
+          <Property Name="depodirect" Type="String" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="codeusager" Type="String" MaxLength="6" Unicode="false" FixedLength="true" />
+          <Property Name="motpasse1" Type="String" MaxLength="8" Unicode="false" FixedLength="true" />
+          <Property Name="motpasse2" Type="String" MaxLength="8" Unicode="false" FixedLength="true" />
+          <Property Name="factweb" Type="String" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="confweb" Type="String" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="villeref" Type="String" MaxLength="40" Unicode="false" FixedLength="false" />
+          <Property Name="usermodif" Type="String" MaxLength="20" Unicode="false" FixedLength="false" />
+          <Property Name="surveil" Type="String" Nullable="false" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="neq" Type="String" MaxLength="10" Unicode="false" FixedLength="true" />
+        </EntityType>
+        <EntityType Name="infodistrict">
+          <Key>
+            <PropertyRef Name="code" />
+          </Key>
+          <Property Name="code" Type="String" Nullable="false" MaxLength="6" Unicode="false" FixedLength="true" />
+          <Property Name="nodist" Type="Int32" Nullable="false" />
+        </EntityType>
+        <EntityType Name="infomega">
+          <Key>
+            <PropertyRef Name="code" />
+          </Key>
+          <Property Name="code" Type="String" Nullable="false" MaxLength="6" Unicode="false" FixedLength="true" />
+          <Property Name="francais" Type="String" Nullable="false" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="anglais" Type="String" Nullable="false" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="autres" Type="String" Nullable="false" MaxLength="40" Unicode="false" FixedLength="true" />
+          <Property Name="experience" Type="Int32" Nullable="false" />
+          <Property Name="details" Type="String" Nullable="false" MaxLength="500" Unicode="false" FixedLength="false" />
+          <Property Name="mega" Type="String" Nullable="false" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="tarification" Type="String" Nullable="false" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="art486" Type="String" Nullable="false" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="art672" Type="String" Nullable="false" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="art684" Type="String" Nullable="false" MaxLength="1" Unicode="false" FixedLength="true" />
+          <Property Name="districthab" Type="String" Nullable="false" MaxLength="100" Unicode="false" FixedLength="true" />
+          <Property Name="commentaire" Type="String" Nullable="false" MaxLength="5000" Unicode="false" FixedLength="false" />
+          <Property Name="dateinsc" Type="DateTime" Nullable="false" />
+          <Property Name="usermodif" Type="String" Nullable="false" MaxLength="20" Unicode="false" FixedLength="true" />
+          <Property Name="datemodif" Type="DateTime" />
+          <Property Name="sectbar" Type="String" MaxLength="100" Unicode="false" FixedLength="false" />
+        </EntityType>
+        <EntityType Name="inhpra">
+          <Key>
+            <PropertyRef Name="code" />
+          </Key>
+          <Property Name="code" Type="String" Nullable="false" MaxLength="6" Unicode="false" FixedLength="true" />
+          <Property Name="datedeb" Type="DateTime" Nullable="false" />
+          <Property Name="datefin" Type="DateTime" Nullable="false" />
+          <Property Name="comm" Type="String" MaxLength="Max" Unicode="false" FixedLength="false" />
+        </EntityType>
+        <EntityType Name="lettremega">
+          <Key>
+            <PropertyRef Name="codeavo" />
+          </Key>
+          <Property Name="codeavo" Type="String" Nullable="false" MaxLength="255" Unicode="true" FixedLength="false" />
+          <Property Name="dateenvoi" Type="DateTime" Nullable="false" />
+          <Property Name="datereception" Type="DateTime" />
+        </EntityType>
+      </Schema>
+    </edmx:ConceptualModels>
+    <!-- C-S mapping content -->
+    <edmx:Mappings>
+      <Mapping Space="C-S" xmlns="http://schemas.microsoft.com/ado/2008/09/mapping/cs">
+        <EntityContainerMapping StorageEntityContainer="CardAvoModelStoreContainer" CdmEntityContainer="CardAvoEntities">
+          <EntitySetMapping Name="Adresses">
+            <EntityTypeMapping TypeName="CardAvoModel.Adresses">
+              <MappingFragment StoreEntitySet="Adresses">
+                <ScalarProperty Name="code" ColumnName="code" />
+                <ScalarProperty Name="adresse" ColumnName="adresse" />
+                <ScalarProperty Name="ville" ColumnName="ville" />
+                <ScalarProperty Name="province" ColumnName="province" />
+                <ScalarProperty Name="codepostal" ColumnName="codepostal" />
+                <ScalarProperty Name="telephone" ColumnName="telephone" />
+                <ScalarProperty Name="telephone2" ColumnName="telephone2" />
+                <ScalarProperty Name="fax" ColumnName="fax" />
+                <ScalarProperty Name="adremail" ColumnName="adremail" />
+                <ScalarProperty Name="noseq" ColumnName="noseq" />
+                <ScalarProperty Name="adresse2" ColumnName="adresse2" />
+                <ScalarProperty Name="adresse3" ColumnName="adresse3" />
+                <ScalarProperty Name="courant" ColumnName="courant" />
+                <ScalarProperty Name="dateadr" ColumnName="dateadr" />
+                <ScalarProperty Name="poste1" ColumnName="poste1" />
+                <ScalarProperty Name="poste2" ColumnName="poste2" />
+                <ScalarProperty Name="RowId" ColumnName="RowId" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="Avocats">
+            <EntityTypeMapping TypeName="CardAvoModel.Avocats">
+              <MappingFragment StoreEntitySet="Avocats">
+                <ScalarProperty Name="code" ColumnName="code" />
+                <ScalarProperty Name="sectbar" ColumnName="sectbar" />
+                <ScalarProperty Name="mega" ColumnName="mega" />
+                <ScalarProperty Name="nom" ColumnName="nom" />
+                <ScalarProperty Name="prenom" ColumnName="prenom" />
+                <ScalarProperty Name="actpass" ColumnName="actpass" />
+                <ScalarProperty Name="dateinscbarr" ColumnName="dateinscbarr" />
+                <ScalarProperty Name="payable" ColumnName="payable" />
+                <ScalarProperty Name="adrcour" ColumnName="adrcour" />
+                <ScalarProperty Name="adrnonpay" ColumnName="adrnonpay" />
+                <ScalarProperty Name="codebar" ColumnName="codebar" />
+                <ScalarProperty Name="comm" ColumnName="comm" />
+                <ScalarProperty Name="datemodif" ColumnName="datemodif" />
+                <ScalarProperty Name="nas" ColumnName="nas" />
+                <ScalarProperty Name="depodirect" ColumnName="depodirect" />
+                <ScalarProperty Name="codeusager" ColumnName="codeusager" />
+                <ScalarProperty Name="motpasse1" ColumnName="motpasse1" />
+                <ScalarProperty Name="motpasse2" ColumnName="motpasse2" />
+                <ScalarProperty Name="factweb" ColumnName="factweb" />
+                <ScalarProperty Name="confweb" ColumnName="confweb" />
+                <ScalarProperty Name="villeref" ColumnName="villeref" />
+                <ScalarProperty Name="usermodif" ColumnName="usermodif" />
+                <ScalarProperty Name="surveil" ColumnName="surveil" />
+                <ScalarProperty Name="neq" ColumnName="neq" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="infodistrict">
+            <EntityTypeMapping TypeName="CardAvoModel.infodistrict">
+              <MappingFragment StoreEntitySet="infodistrict">
+                <ScalarProperty Name="code" ColumnName="code" />
+                <ScalarProperty Name="nodist" ColumnName="nodist" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="infomega">
+            <EntityTypeMapping TypeName="CardAvoModel.infomega">
+              <MappingFragment StoreEntitySet="infomega">
+                <ScalarProperty Name="code" ColumnName="code" />
+                <ScalarProperty Name="francais" ColumnName="francais" />
+                <ScalarProperty Name="anglais" ColumnName="anglais" />
+                <ScalarProperty Name="autres" ColumnName="autres" />
+                <ScalarProperty Name="experience" ColumnName="experience" />
+                <ScalarProperty Name="details" ColumnName="details" />
+                <ScalarProperty Name="mega" ColumnName="mega" />
+                <ScalarProperty Name="tarification" ColumnName="tarification" />
+                <ScalarProperty Name="art486" ColumnName="art486" />
+                <ScalarProperty Name="art672" ColumnName="art672" />
+                <ScalarProperty Name="art684" ColumnName="art684" />
+                <ScalarProperty Name="districthab" ColumnName="districthab" />
+                <ScalarProperty Name="commentaire" ColumnName="commentaire" />
+                <ScalarProperty Name="dateinsc" ColumnName="dateinsc" />
+                <ScalarProperty Name="usermodif" ColumnName="usermodif" />
+                <ScalarProperty Name="datemodif" ColumnName="datemodif" />
+                <ScalarProperty Name="sectbar" ColumnName="sectbar" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="inhpra">
+            <EntityTypeMapping TypeName="CardAvoModel.inhpra">
+              <MappingFragment StoreEntitySet="inhpra">
+                <ScalarProperty Name="code" ColumnName="code" />
+                <ScalarProperty Name="datedeb" ColumnName="datedeb" />
+                <ScalarProperty Name="datefin" ColumnName="datefin" />
+                <ScalarProperty Name="comm" ColumnName="comm" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="lettremega">
+            <EntityTypeMapping TypeName="CardAvoModel.lettremega">
+              <MappingFragment StoreEntitySet="lettremega">
+                <ScalarProperty Name="codeavo" ColumnName="codeavo" />
+                <ScalarProperty Name="dateenvoi" ColumnName="dateenvoi" />
+                <ScalarProperty Name="datereception" ColumnName="datereception" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+        </EntityContainerMapping>
+      </Mapping>
+    </edmx:Mappings>
+  </edmx:Runtime>
+  <!-- EF Designer content (DO NOT EDIT MANUALLY BELOW HERE) -->
+  <Designer xmlns="http://schemas.microsoft.com/ado/2008/10/edmx">
+    <Connection>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="MetadataArtifactProcessing" Value="EmbedInOutputAssembly" />
+      </DesignerInfoPropertySet>
+    </Connection>
+    <Options>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="ValidateOnBuild" Value="true" />
+        <DesignerProperty Name="EnablePluralization" Value="False" />
+        <DesignerProperty Name="IncludeForeignKeysInModel" Value="True" />
+      </DesignerInfoPropertySet>
+    </Options>
+    <!-- Diagram content (shape and connector positions) -->
+    <Diagrams>
+      <Diagram Name="Model1">
+        <EntityTypeShape EntityType="CardAvoModel.Adresses" Width="1.5" PointX="2.375" PointY="0.5" Height="4.2879036458333326" IsExpanded="true" />
+        <EntityTypeShape EntityType="CardAvoModel.Avocats" Width="1.5" PointX="0.5" PointY="0.5" Height="5.634013671875" IsExpanded="true" />
+        <EntityTypeShape EntityType="CardAvoModel.infodistrict" Width="1.5" PointX="12.875" PointY="0.75" Height="1.4033821614583326" IsExpanded="true" />
+        <EntityTypeShape EntityType="CardAvoModel.infomega" Width="1.5" PointX="9.125" PointY="0.75" Height="4.2879036458333335" IsExpanded="true" />
+        <EntityTypeShape EntityType="CardAvoModel.inhpra" Width="1.5" PointX="4.25" PointY="0.5" Height="1.8079850260416666" IsExpanded="true" />
+        <EntityTypeShape EntityType="CardAvoModel.lettremega" Width="1.5" PointX="10.875" PointY="0.75" Height="1.5956835937499996" IsExpanded="true" />
+      </Diagram>
+    </Diagrams>
+  </Designer>
+</edmx:Edmx>

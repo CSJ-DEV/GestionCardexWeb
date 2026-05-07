@@ -101,6 +101,45 @@ class UserOut(BaseModel):
     role: str = "admin"
 
 
+class UserCreate(BaseModel):
+    email: EmailStr
+    name: str
+    password: str = Field(..., min_length=6)
+    role: str = Field("editeur", pattern="^(admin|editeur|lecteur)$")
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = Field(None, pattern="^(admin|editeur|lecteur)$")
+
+
+def require_role(*allowed_roles):
+    async def checker(user: dict = Depends(get_current_user)) -> dict:
+        if user.get("role") not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        return user
+    return checker
+
+
+def funcValidNoAssSoc(no: str) -> bool:
+    if not no:
+        return True
+    no = no.strip()
+    if len(no) != 9 or not no.isdigit():
+        return False
+    tot = 0
+    for i, ch in enumerate(no[:-1], start=1):
+        c = int(ch)
+        if i % 2 == 0:
+            c = c * 2
+            if c > 9:
+                c = (c // 10) + (c % 10)
+        tot += c
+    v = (10 - (tot % 10)) % 10
+    return v == int(no[-1])
+
+
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
@@ -123,16 +162,20 @@ class Adresse(BaseModel):
 class AvocatBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
     code: str = Field(..., min_length=1, max_length=10)
+    type_code: str = Field("A", description="A=Avocat permanent, P=Avocat privé, N=Notaire")
     nom: str = Field(..., min_length=1, max_length=80)
     prenom: str = Field(..., min_length=1, max_length=80)
     sectbar: Optional[str] = ""
     mega: bool = False
     actif: bool = True
+    attente: bool = False
+    annee_barreau: Optional[str] = ""
     dateinscbarr: Optional[str] = ""
     payable: bool = True
     codebar: Optional[str] = ""
     comm: Optional[str] = ""
     nas: Optional[str] = ""
+    taxes: Optional[str] = ""
     depodirect: bool = False
     factweb: bool = False
     confweb: bool = False
@@ -148,11 +191,15 @@ class AvocatCreate(AvocatBase):
 
 class AvocatUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
+    type_code: Optional[str] = None
     nom: Optional[str] = None
     prenom: Optional[str] = None
     sectbar: Optional[str] = None
     mega: Optional[bool] = None
     actif: Optional[bool] = None
+    attente: Optional[bool] = None
+    annee_barreau: Optional[str] = None
+    taxes: Optional[str] = None
     dateinscbarr: Optional[str] = None
     payable: Optional[bool] = None
     codebar: Optional[str] = None
@@ -246,6 +293,26 @@ async def list_avocats(
     return AvocatsListOut(items=items, total=total, page=page, page_size=page_size)
 
 
+@api_router.get("/avocats/next-code")
+async def next_avocat_code(
+    type: str = Query("A", pattern="^[ANP]$"),
+    user: dict = Depends(get_current_user),
+):
+    """Génère le prochain code séquentiel selon le type (A/N/P)."""
+    cursor = db.avocats.find(
+        {"code": {"$regex": f"^{type}\\d+$"}},
+        {"_id": 0, "code": 1},
+    ).sort("code", -1).limit(1)
+    docs = await cursor.to_list(length=1)
+    next_num = 1
+    if docs:
+        try:
+            next_num = int(docs[0]["code"][1:]) + 1
+        except (ValueError, IndexError):
+            next_num = 1
+    return {"code": f"{type}{next_num:04d}"}
+
+
 @api_router.get("/avocats/stats", response_model=StatsOut)
 async def avocats_stats(user: dict = Depends(get_current_user)):
     total = await db.avocats.count_documents({})
@@ -266,7 +333,9 @@ async def get_avocat(avocat_id: str, user: dict = Depends(get_current_user)):
 
 
 @api_router.post("/avocats", response_model=AvocatOut, status_code=201)
-async def create_avocat(payload: AvocatCreate, user: dict = Depends(get_current_user)):
+async def create_avocat(payload: AvocatCreate, user: dict = Depends(require_role("admin", "editeur"))):
+    if payload.nas and not funcValidNoAssSoc(payload.nas):
+        raise HTTPException(status_code=422, detail="Numéro NAS invalide (algorithme Luhn)")
     existing = await db.avocats.find_one({"code": payload.code})
     if existing:
         raise HTTPException(status_code=409, detail=f"Le code '{payload.code}' existe déjà")
@@ -284,7 +353,7 @@ async def create_avocat(payload: AvocatCreate, user: dict = Depends(get_current_
 
 
 @api_router.put("/avocats/{avocat_id}", response_model=AvocatOut)
-async def update_avocat(avocat_id: str, payload: AvocatUpdate, user: dict = Depends(get_current_user)):
+async def update_avocat(avocat_id: str, payload: AvocatUpdate, user: dict = Depends(require_role("admin", "editeur"))):
     update_doc = {k: (v.model_dump() if hasattr(v, "model_dump") else v)
                   for k, v in payload.model_dump(exclude_unset=True).items()}
     if not update_doc:
@@ -299,10 +368,106 @@ async def update_avocat(avocat_id: str, payload: AvocatUpdate, user: dict = Depe
 
 
 @api_router.delete("/avocats/{avocat_id}")
-async def delete_avocat(avocat_id: str, user: dict = Depends(get_current_user)):
+async def delete_avocat(avocat_id: str, user: dict = Depends(require_role("admin"))):
+    await db.avocat_adresses.delete_many({"avocat_id": avocat_id})
     res = await db.avocats.delete_one({"id": avocat_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
+    return {"ok": True}
+
+
+@api_router.get("/avocats/{avocat_id}/adresses")
+async def list_adresses(avocat_id: str, user: dict = Depends(get_current_user)):
+    docs = await db.avocat_adresses.find({"avocat_id": avocat_id}, {"_id": 0}).sort("created_at", -1).to_list(length=200)
+    return docs
+
+
+@api_router.post("/avocats/{avocat_id}/adresses", status_code=201)
+async def create_adresse(avocat_id: str, payload: Adresse, courant: bool = False, user: dict = Depends(require_role("admin", "editeur"))):
+    avo = await db.avocats.find_one({"id": avocat_id})
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = payload.model_dump()
+    doc.update({"id": str(uuid.uuid4()), "avocat_id": avocat_id, "courant": courant, "created_at": now, "updated_at": now})
+    if courant:
+        await db.avocat_adresses.update_many({"avocat_id": avocat_id}, {"$set": {"courant": False}})
+        await db.avocats.update_one({"id": avocat_id}, {"$set": {"adresse": payload.model_dump(), "updated_at": now}})
+    await db.avocat_adresses.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/avocats/{avocat_id}/adresses/{adresse_id}")
+async def update_adresse(avocat_id: str, adresse_id: str, payload: Adresse, courant: bool = False, user: dict = Depends(require_role("admin", "editeur"))):
+    now = datetime.now(timezone.utc).isoformat()
+    update = payload.model_dump()
+    update.update({"courant": courant, "updated_at": now})
+    if courant:
+        await db.avocat_adresses.update_many({"avocat_id": avocat_id}, {"$set": {"courant": False}})
+        await db.avocats.update_one({"id": avocat_id}, {"$set": {"adresse": payload.model_dump(), "updated_at": now}})
+    res = await db.avocat_adresses.update_one({"id": adresse_id, "avocat_id": avocat_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Adresse introuvable")
+    return {"ok": True}
+
+
+@api_router.delete("/avocats/{avocat_id}/adresses/{adresse_id}")
+async def delete_adresse(avocat_id: str, adresse_id: str, user: dict = Depends(require_role("admin", "editeur"))):
+    res = await db.avocat_adresses.delete_one({"id": adresse_id, "avocat_id": avocat_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Adresse introuvable")
+    return {"ok": True}
+
+
+# ---------- Users CRUD (admin only) ----------
+@api_router.get("/users")
+async def list_users(user: dict = Depends(require_role("admin"))):
+    docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(length=500)
+    return docs
+
+
+@api_router.post("/users", status_code=201)
+async def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))):
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="Courriel déjà utilisé")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "name": payload.name,
+        "role": payload.role,
+        "password_hash": hash_password(payload.password),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(doc.copy())
+    return {"id": doc["id"], "email": email, "name": payload.name, "role": payload.role}
+
+
+@api_router.put("/users/{user_id}")
+async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(require_role("admin"))):
+    update = {}
+    if payload.name is not None:
+        update["name"] = payload.name
+    if payload.role is not None:
+        update["role"] = payload.role
+    if payload.password:
+        update["password_hash"] = hash_password(payload.password)
+    if not update:
+        raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+    res = await db.users.update_one({"id": user_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    return {"ok": True}
+
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, user: dict = Depends(require_role("admin"))):
+    if user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Impossible de supprimer son propre compte")
+    res = await db.users.delete_one({"id": user_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     return {"ok": True}
 
 

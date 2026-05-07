@@ -39,3 +39,17 @@ React 19 + FastAPI + MongoDB (replaces VB6/SQL Server). Internal app.
 ## Test credentials
 Voir `/app/memory/test_credentials.md`
 - admin@gestioncardex.qc / Admin2026!
+
+## Phase 1a — Backend (2026-05-07)
+**Implémenté** :
+- Modèle Avocat enrichi : `type_code` (A/N/P), `attente`, `annee_barreau`, `taxes`
+- `GET /api/avocats/next-code?type=A` → auto-génération séquentielle (A0001, P0001, N0001 — Jordan supprimé)
+- Validation NAS **Luhn** côté serveur (rejet 422 si invalide) — port direct du `funcValidNoAssSoc` VB
+- Sous-ressource Adresses : `/api/avocats/{id}/adresses` (GET/POST/PUT/DELETE) avec gestion logique « courante »
+- Suppression d'avocat → cascade des adresses associées
+- Modèle User étendu avec rôles : `admin` / `editeur` / `lecteur`
+- CRUD Utilisateurs `/api/users` (admin uniquement) avec protection auto-suppression
+- Helper `require_role(...)` pour protéger les routes par rôle
+- Routes Avocats protégées : create/update = admin+editeur, delete = admin uniquement
+
+**Phase 1b à venir** : Frontend tabbed UI (5 onglets) + page Utilisateurs + sidebar dynamique selon rôle + mode lecture seule.

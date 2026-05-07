@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Plus, Search, Pencil, Trash2 } from "lucide-react";
 import api, { formatApiError } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -35,6 +36,9 @@ import AvocatSheet from "@/components/AvocatSheet";
 const PAGE_SIZE = 25;
 
 export default function AvocatsList() {
+    const { user } = useAuth();
+    const canEdit = user?.role === "admin" || user?.role === "editeur";
+    const isAdmin = user?.role === "admin";
     const [items, setItems] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
@@ -96,13 +100,15 @@ export default function AvocatsList() {
                         {total} {total > 1 ? "fiches" : "fiche"} • Gérer le registre central des avocats.
                     </p>
                 </div>
-                <Button
-                    onClick={() => setEditing({})}
-                    className="rounded-md bg-[#0033A0] hover:bg-[#002277] text-white"
-                    data-testid="add-avocat-button"
-                >
-                    <Plus size={16} className="mr-2" /> Nouvel avocat
-                </Button>
+                {canEdit && (
+                    <Button
+                        onClick={() => setEditing({})}
+                        className="rounded-md bg-[#0033A0] hover:bg-[#002277] text-white"
+                        data-testid="add-avocat-button"
+                    >
+                        <Plus size={16} className="mr-2" /> Nouvel avocat
+                    </Button>
+                )}
             </div>
 
             {/* Filters */}
@@ -209,23 +215,27 @@ export default function AvocatsList() {
                                         className="text-right space-x-1"
                                         onClick={(e) => e.stopPropagation()}
                                     >
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => setEditing(a)}
-                                            data-testid={`edit-avocat-${a.code}`}
-                                        >
-                                            <Pencil size={14} />
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-red-600 hover:text-red-700"
-                                            onClick={() => setDeleting(a)}
-                                            data-testid={`delete-avocat-${a.code}`}
-                                        >
-                                            <Trash2 size={14} />
-                                        </Button>
+                                        {canEdit && (
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => setEditing(a)}
+                                                data-testid={`edit-avocat-${a.code}`}
+                                            >
+                                                <Pencil size={14} />
+                                            </Button>
+                                        )}
+                                        {isAdmin && (
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="text-red-600 hover:text-red-700"
+                                                onClick={() => setDeleting(a)}
+                                                data-testid={`delete-avocat-${a.code}`}
+                                            >
+                                                <Trash2 size={14} />
+                                            </Button>
+                                        )}
                                     </TableCell>
                                 </TableRow>
                             ))

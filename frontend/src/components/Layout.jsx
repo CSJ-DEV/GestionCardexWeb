@@ -1,16 +1,21 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutGrid, Users, LogOut, Scale, Search } from "lucide-react";
+import { LayoutGrid, Users, LogOut, Scale, Search, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
-const navItems = [
-    { to: "/", icon: LayoutGrid, label: "Tableau de bord", testId: "nav-dashboard" },
-    { to: "/avocats", icon: Users, label: "Avocats", testId: "nav-avocats" },
-];
+const roleLabel = { admin: "Administrateur", editeur: "Éditeur", lecteur: "Lecteur" };
 
 export default function Layout() {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const isAdmin = user?.role === "admin";
+
+    const navItems = [
+        { to: "/", icon: LayoutGrid, label: "Tableau de bord", testId: "nav-dashboard" },
+        { to: "/avocats", icon: Users, label: "Avocats", testId: "nav-avocats" },
+        ...(isAdmin ? [{ to: "/utilisateurs", icon: ShieldCheck, label: "Utilisateurs", testId: "nav-users" }] : []),
+    ];
 
     const handleLogout = async () => {
         await logout();
@@ -58,6 +63,11 @@ export default function Layout() {
                     <div className="text-xs text-slate-500 mb-2 truncate" data-testid="current-user-email">
                         {user?.email}
                     </div>
+                    {user?.role && (
+                        <Badge className="mb-3 bg-slate-100 text-slate-700 hover:bg-slate-100 rounded-md text-[10px]">
+                            {roleLabel[user.role] || user.role}
+                        </Badge>
+                    )}
                     <Button
                         variant="outline"
                         size="sm"

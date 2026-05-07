@@ -1,0 +1,87 @@
+{
+  "project_name": "GestionCardex",
+  "domain": "Legal Management ERP",
+  "language": "fr-CA",
+  "theme": "Light",
+  "archetype": "Archetype 4: Swiss & High-Contrast",
+  "typography": {
+    "headings": {
+      "font_family": "Cabinet Grotesk",
+      "weights": ["font-medium", "font-bold", "font-black"],
+      "classes": "tracking-tight text-slate-900"
+    },
+    "body": {
+      "font_family": "IBM Plex Sans",
+      "weights": ["font-normal", "font-medium"],
+      "classes": "leading-relaxed text-slate-700"
+    },
+    "rules": [
+      "No Inter, Roboto, or standard defaults.",
+      "H1 size capped at text-4xl sm:text-5xl.",
+      "Overlines/Labels must be uppercase, tiny, wide spacing (tracking-[0.2em])."
+    ]
+  },
+  "color_palette": {
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "primary": "#0033A0",
+    "primary_hover": "#002277",
+    "text_main": "#0F172A",
+    "text_muted": "#475569",
+    "border": "#E2E8F0",
+    "status": {
+      "actif": "#16A34A",
+      "inactif": "#DC2626"
+    },
+    "rules": [
+      "Strict Swiss/High-Contrast approach. Use color only for function.",
+      "Tinted greys rule: Neutral greys are tinted slightly blue (Slate).",
+      "Hover states must be explicitly defined and have accessible contrast."
+    ]
+  },
+  "spacing_and_layout": {
+    "strategy": "The Control Room Grid (Density, Data Correlation, Scanability)",
+    "container_padding": "p-6 md:p-8",
+    "grid_system": {
+      "dashboard_stats": "grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4",
+      "forms": "grid-cols-1 md:grid-cols-2 gap-6"
+    },
+    "borders_and_radius": "Max 6px border-radius (rounded-md). Sharp edges for a professional ERP feel.",
+    "rules": [
+      "Optical alignment over geometrical alignment.",
+      "Always ensure borders have internal padding.",
+      "Avoid card overload, use flat boundaries where appropriate.",
+      "Grid children must be direct children of the grid container."
+    ]
+  },
+  "components": {
+    "navigation": "Sidebar for main modules (Tableau de bord, Avocats). Topbar for user menu and global search. Sticky header with Glassmorphism (bg-white/70 backdrop-blur-xl border-b border-slate-200).",
+    "data_table": "Shadcn UI Table. High density, compact padding (py-2 px-4). Must include search input, status filter dropdown, and pagination.",
+    "forms": "Shadcn Form, Input, Select. Left-aligned labels. Use a Sheet (Slide-over) or Dialog for 'Créer / modifier un avocat' to keep context of the list.",
+    "cards": "Flat background (bg-white), 1px subtle border (border-slate-200), no drop shadow by default. Hover adds slight lift and shadow-sm.",
+    "icons": {
+      "library": "@phosphor-icons/react",
+      "style": "Duotone or Regular weight, strictly functional."
+    },
+    "testing": "All interactive and key informational elements MUST include `data-testid` attribute (e.g., data-testid='avocat-search-input')."
+  },
+  "media_and_images": {
+    "login_background": {
+      "url": "https://images.unsplash.com/photo-1664813953289-7c3350f040e0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBtaW5pbWFsaXN0JTIwYXJjaGl0ZWN0dXJlJTIwd2hpdGV8ZW58MHx8fHwxNzc4MTY5MzcxfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Minimalist white architecture. Use as a split-screen background for the login page to convey structure and professionalism."
+    }
+  },
+  "motion_and_interaction": {
+    "hover_states": "Subtle background shifts on list items (hover:bg-slate-50).",
+    "transitions": "Fast, functional transitions (transition-colors duration-200 ease-in-out).",
+    "loading": "Skeleton loaders for data tables instead of spinners."
+  },
+  "instructions_to_main_agent": [
+    "Generate code in .js / .jsx only (not .tsx).",
+    "All text, labels, and placeholders MUST be in French (fr-CA).",
+    "Implement Shadcn UI components but adjust the rounded corners to rounded-md for an ERP feel.",
+    "Make sure the Fiche Avocat includes all requested fields: nom, prénom, code, section barreau, NEQ, NAS, statut actif/passif, date inscription, adresse courante, téléphone, email, commentaires.",
+    "Apply data-testid to all buttons, links, inputs, and major UI components using kebab-case role-based naming.",
+    "Ensure login page uses JWT strategy (mock the auth flow if backend is not present, but build the UI)."
+  ]
+}

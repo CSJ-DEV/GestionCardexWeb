@@ -97,3 +97,18 @@ Voir `/app/memory/test_credentials.md`
 ## Phase 3 (à venir)
 - Onglet **Web** (codes usager + mots de passe — `frmMotPasse` du VB)
 - **Rapports PDF** (Registre97 + ListeDetBar + ListeDetDist + ListeDetReg + ListeSom) — *requiert PDF d'exemple ou descriptions de colonnes pour chaque rapport*
+
+## Phase 3a — Onglet Web (2026-05-07)
+**Implémenté** :
+- Champ `codeusager` ajouté au modèle Avocat (rétrocompatible)
+- Endpoint `PUT /api/avocats/{id}/web-password` : hash bcrypt + min 6 car. (admin/editeur)
+- Endpoint `DELETE /api/avocats/{id}/web-password` : reset
+- 5e onglet **Web** dans `AvocatSheet` :
+  - Champ Code usager + Ville référence
+  - 2 switches Facturation web / Confirmation web
+  - Section mot de passe web (Définir / Effacer) — jamais affiché en clair
+  - Bouton « Enregistrer code usager + options » (réutilise handleSubmit identification)
+- Tests curl ✅ (set ok / rejet < 6 car.)
+- Lint frontend ✅
+
+**Phase 3b restante** : Rapports PDF (Registre97 + 4 listes) — bloqué tant que je n'ai pas de PDF d'exemple ou descriptions de colonnes pour chaque .rpt.

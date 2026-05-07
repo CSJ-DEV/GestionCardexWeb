@@ -138,7 +138,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                 </SheetHeader>
 
                 <Tabs defaultValue="ident" className="mt-6">
-                    <TabsList className="grid grid-cols-4 w-full">
+                    <TabsList className="grid grid-cols-5 w-full">
                         <TabsTrigger value="ident" data-testid="tab-ident">Identification</TabsTrigger>
                         <TabsTrigger value="adr" disabled={!isEditing} data-testid="tab-adr">
                             Adresses {adresses.length > 0 && `(${adresses.length})`}
@@ -147,6 +147,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                             Inhabilité {inhabs.length > 0 && `(${inhabs.length})`}
                         </TabsTrigger>
                         <TabsTrigger value="mega" disabled={!isEditing} data-testid="tab-mega">Méga</TabsTrigger>
+                        <TabsTrigger value="web" disabled={!isEditing} data-testid="tab-web">Web</TabsTrigger>
                     </TabsList>
 
                     {/* IDENTIFICATION */}
@@ -386,6 +387,83 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                             <div className="flex justify-end pt-2">
                                 <Button onClick={saveMega} disabled={megaSaving} className="bg-[#0033A0] hover:bg-[#002277] text-white rounded-md" data-testid="save-mega-btn">
                                     {megaSaving ? "Enregistrement…" : "Enregistrer le profil Méga"}
+                                </Button>
+                            </div>
+                        )}
+                    </TabsContent>
+
+                    {/* WEB */}
+                    <TabsContent value="web" className="mt-6 space-y-5">
+                        <div className="text-sm text-slate-600">
+                            Accès web de l'avocat (portail extranet) — équivalent du formulaire <code className="font-mono text-xs bg-slate-100 px-1 rounded">frmMotPasse</code> du VB.
+                        </div>
+                        <Separator />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <F label="Code usager">
+                                <Input value={form.codeusager || ""} onChange={(e) => upd("codeusager", e.target.value)} disabled={readOnly} className="rounded-md font-mono" data-testid="web-codeusager" />
+                            </F>
+                            <F label="Ville référence">
+                                <Input value={form.villerref || ""} onChange={(e) => upd("villerref", e.target.value)} disabled={readOnly} className="rounded-md" data-testid="web-villerref" />
+                            </F>
+                        </div>
+                        <Separator />
+                        <div>
+                            <div className="overline mb-3">Options Web</div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex items-center justify-between border border-slate-200 rounded-md px-3 py-2">
+                                    <Label className="text-sm">Facturation web</Label>
+                                    <Switch checked={!!form.factweb} onCheckedChange={(v) => upd("factweb", v)} disabled={readOnly} data-testid="web-factweb" />
+                                </div>
+                                <div className="flex items-center justify-between border border-slate-200 rounded-md px-3 py-2">
+                                    <Label className="text-sm">Confirmation web</Label>
+                                    <Switch checked={!!form.confweb} onCheckedChange={(v) => upd("confweb", v)} disabled={readOnly} data-testid="web-confweb" />
+                                </div>
+                            </div>
+                        </div>
+                        <Separator />
+                        <div>
+                            <div className="overline mb-3">Mot de passe Web</div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                                <F label="Nouveau mot de passe (min 6 car.)">
+                                    <Input type="password" value={form._webpwd || ""} onChange={(e) => upd("_webpwd", e.target.value)} disabled={readOnly} minLength={6} className="rounded-md" data-testid="web-password" />
+                                </F>
+                                {!readOnly && (
+                                    <div className="flex gap-2">
+                                        <Button
+                                            onClick={async () => {
+                                                if (!form._webpwd || form._webpwd.length < 6) { toast.error("Min 6 caractères"); return; }
+                                                try {
+                                                    await api.put(`/avocats/${avocat.id}/web-password`, { password: form._webpwd });
+                                                    upd("_webpwd", "");
+                                                    toast.success("Mot de passe web enregistré");
+                                                } catch (err) { toast.error(formatApiError(err.response?.data?.detail) || "Erreur"); }
+                                            }}
+                                            className="bg-[#0033A0] hover:bg-[#002277] text-white rounded-md"
+                                            data-testid="save-web-password"
+                                        >
+                                            Définir
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            onClick={async () => {
+                                                if (!confirm("Réinitialiser le mot de passe web ?")) return;
+                                                await api.delete(`/avocats/${avocat.id}/web-password`);
+                                                toast.success("Mot de passe réinitialisé");
+                                            }}
+                                            className="rounded-md"
+                                            data-testid="clear-web-password"
+                                        >
+                                            Effacer
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+                            <p className="text-xs text-slate-500 mt-2">Le mot de passe est stocké hashé (bcrypt) et n'est jamais affiché.</p>
+                        </div>
+                        {!readOnly && (
+                            <div className="flex justify-end pt-2 border-t border-slate-200">
+                                <Button onClick={handleSubmit} className="bg-[#0033A0] hover:bg-[#002277] text-white rounded-md" data-testid="save-web-tab">
+                                    Enregistrer code usager + options
                                 </Button>
                             </div>
                         )}

@@ -182,6 +182,7 @@ class AvocatBase(BaseModel):
     villerref: Optional[str] = ""
     surveil: bool = False
     neq: Optional[str] = ""
+    codeusager: Optional[str] = ""
     adresse: Adresse = Field(default_factory=Adresse)
 
 
@@ -562,6 +563,24 @@ async def delete_inhab(avocat_id: str, inhab_id: str, user: dict = Depends(requi
     res = await db.avocat_inhab.delete_one({"id": inhab_id, "avocat_id": avocat_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Période introuvable")
+    return {"ok": True}
+
+
+@api_router.put("/avocats/{avocat_id}/web-password")
+async def set_web_password(avocat_id: str, payload: dict, user: dict = Depends(require_role("admin", "editeur"))):
+    pwd = (payload or {}).get("password", "")
+    if len(pwd) < 6:
+        raise HTTPException(status_code=400, detail="Mot de passe trop court (min 6)")
+    avo = await db.avocats.find_one({"id": avocat_id})
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    await db.avocats.update_one({"id": avocat_id}, {"$set": {"web_password_hash": hash_password(pwd), "updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"ok": True}
+
+
+@api_router.delete("/avocats/{avocat_id}/web-password")
+async def clear_web_password(avocat_id: str, user: dict = Depends(require_role("admin", "editeur"))):
+    await db.avocats.update_one({"id": avocat_id}, {"$unset": {"web_password_hash": ""}})
     return {"ok": True}
 
 

@@ -370,6 +370,8 @@ async def update_avocat(avocat_id: str, payload: AvocatUpdate, user: dict = Depe
 @api_router.delete("/avocats/{avocat_id}")
 async def delete_avocat(avocat_id: str, user: dict = Depends(require_role("admin"))):
     await db.avocat_adresses.delete_many({"avocat_id": avocat_id})
+    await db.avocat_mega.delete_one({"avocat_id": avocat_id})
+    await db.avocat_inhab.delete_many({"avocat_id": avocat_id})
     res = await db.avocats.delete_one({"id": avocat_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
@@ -468,6 +470,98 @@ async def delete_user(user_id: str, user: dict = Depends(require_role("admin")))
     res = await db.users.delete_one({"id": user_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    return {"ok": True}
+
+
+class InfoMega(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    sectbar: Optional[str] = ""
+    districthab: Optional[str] = ""
+    francais: bool = True
+    anglais: bool = False
+    autres: Optional[str] = ""
+    experience: Optional[int] = 0
+    details: Optional[str] = ""
+    art486: bool = False
+    art672: bool = False
+    art684: bool = False
+    commentaire: Optional[str] = ""
+    dateinsc: Optional[str] = ""
+    districts: List[int] = Field(default_factory=list)
+    tous_districts: bool = False
+
+
+class Inhabilite(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    datedeb: str
+    datefin: Optional[str] = ""
+    comm: Optional[str] = ""
+
+
+@api_router.get("/avocats/{avocat_id}/mega")
+async def get_mega(avocat_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.avocat_mega.find_one({"avocat_id": avocat_id}, {"_id": 0})
+    return doc or {}
+
+
+@api_router.put("/avocats/{avocat_id}/mega")
+async def upsert_mega(avocat_id: str, payload: InfoMega, user: dict = Depends(require_role("admin", "editeur"))):
+    avo = await db.avocats.find_one({"id": avocat_id})
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = payload.model_dump()
+    doc.update({"avocat_id": avocat_id, "updated_at": now, "usermodif": user.get("email", "")})
+    await db.avocat_mega.update_one(
+        {"avocat_id": avocat_id},
+        {"$set": doc, "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now}},
+        upsert=True,
+    )
+    await db.avocats.update_one({"id": avocat_id}, {"$set": {"mega": True, "updated_at": now}})
+    return {"ok": True}
+
+
+@api_router.delete("/avocats/{avocat_id}/mega")
+async def delete_mega(avocat_id: str, user: dict = Depends(require_role("admin", "editeur"))):
+    await db.avocat_mega.delete_one({"avocat_id": avocat_id})
+    await db.avocats.update_one({"id": avocat_id}, {"$set": {"mega": False}})
+    return {"ok": True}
+
+
+@api_router.get("/avocats/{avocat_id}/inhabilites")
+async def list_inhab(avocat_id: str, user: dict = Depends(get_current_user)):
+    docs = await db.avocat_inhab.find({"avocat_id": avocat_id}, {"_id": 0}).sort("datedeb", -1).to_list(length=200)
+    return docs
+
+
+@api_router.post("/avocats/{avocat_id}/inhabilites", status_code=201)
+async def create_inhab(avocat_id: str, payload: Inhabilite, user: dict = Depends(require_role("admin", "editeur"))):
+    avo = await db.avocats.find_one({"id": avocat_id})
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = payload.model_dump()
+    doc.update({"id": str(uuid.uuid4()), "avocat_id": avocat_id, "created_at": now, "updated_at": now})
+    await db.avocat_inhab.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/avocats/{avocat_id}/inhabilites/{inhab_id}")
+async def update_inhab(avocat_id: str, inhab_id: str, payload: Inhabilite, user: dict = Depends(require_role("admin", "editeur"))):
+    update = payload.model_dump()
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    res = await db.avocat_inhab.update_one({"id": inhab_id, "avocat_id": avocat_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Période introuvable")
+    return {"ok": True}
+
+
+@api_router.delete("/avocats/{avocat_id}/inhabilites/{inhab_id}")
+async def delete_inhab(avocat_id: str, inhab_id: str, user: dict = Depends(require_role("admin", "editeur"))):
+    res = await db.avocat_inhab.delete_one({"id": inhab_id, "avocat_id": avocat_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Période introuvable")
     return {"ok": True}
 
 

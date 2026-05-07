@@ -53,3 +53,26 @@ Voir `/app/memory/test_credentials.md`
 - Routes Avocats protégées : create/update = admin+editeur, delete = admin uniquement
 
 **Phase 1b à venir** : Frontend tabbed UI (5 onglets) + page Utilisateurs + sidebar dynamique selon rôle + mode lecture seule.
+
+## Phase 2a — Backend Méga + Inhabilité (2026-05-07)
+**Implémenté** :
+- Modèle `InfoMega` : sectbar, districthab, francais/anglais (bool), autres, experience (int), details, art486/672/684 (bool), commentaire, dateinsc, districts (list[int]), tous_districts
+- Modèle `Inhabilite` : datedeb, datefin, comm
+- Endpoints Méga (1 par avocat — upsert) :
+  - `GET /api/avocats/{id}/mega`
+  - `PUT /api/avocats/{id}/mega` (admin/editeur, met automatiquement avocats.mega=true)
+  - `DELETE /api/avocats/{id}/mega` (met avocats.mega=false)
+- Endpoints Inhabilité (sous-collection) :
+  - `GET /api/avocats/{id}/inhabilites`
+  - `POST /api/avocats/{id}/inhabilites` (admin/editeur)
+  - `PUT /api/avocats/{id}/inhabilites/{inhab_id}`
+  - `DELETE /api/avocats/{id}/inhabilites/{inhab_id}`
+- Suppression d'avocat → cascade des collections `avocat_mega` + `avocat_inhab`
+- Tous testés via curl ✅
+
+**Phase 2b à venir** : Onglets frontend Méga + Inhabilité dans `AvocatSheet`.
+
+## Rapports Crystal reçus (à traiter en Phase 3)
+- `Registre97.rpt` (P0)
+- `ListeDetBar.rpt`, `ListeDetDist.rpt`, `ListeDetReg.rpt`, `ListeSom.rpt`
+⚠️ Format binaire SAP non parsable directement — requis : PDF d'exemple OU liste colonnes/groupes/totaux OU requêtes SQL.

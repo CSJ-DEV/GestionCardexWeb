@@ -78,6 +78,13 @@ export default function Rapports() {
                         <Download size={14} className="mr-2" /> Générer Registre97 (PDF)
                     </Button>
                 </div>
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-2">
+                    <Button variant="outline" onClick={() => window.open(`${API}/rapports/registre98?date_debut=${dateDebut}&date_fin=${dateFin}`, "_blank")} className="rounded-md" data-testid="dl-registre98"><Download size={12} className="mr-1" /> Registre98</Button>
+                    <Button variant="outline" onClick={() => window.open(`${API}/rapports/liste-det-bar`, "_blank")} className="rounded-md" data-testid="dl-detbar"><Download size={12} className="mr-1" /> Liste Bar.</Button>
+                    <Button variant="outline" onClick={() => window.open(`${API}/rapports/liste-det-dist`, "_blank")} className="rounded-md" data-testid="dl-detdist"><Download size={12} className="mr-1" /> Liste Dist.</Button>
+                    <Button variant="outline" onClick={() => window.open(`${API}/rapports/liste-det-reg`, "_blank")} className="rounded-md" data-testid="dl-detreg"><Download size={12} className="mr-1" /> Liste Reg.</Button>
+                    <Button variant="outline" onClick={() => window.open(`${API}/rapports/liste-som`, "_blank")} className="rounded-md" data-testid="dl-listesom"><Download size={12} className="mr-1" /> Liste Som.</Button>
+                </div>
             </div>
 
             {/* Mandats CRUD */}

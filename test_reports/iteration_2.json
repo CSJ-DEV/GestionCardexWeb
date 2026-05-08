@@ -1,0 +1,31 @@
+{
+  "summary": "Backend 100% green (27/27 tests: 10 prior + 17 new for next-code/NAS Luhn/duplicate/adresses-courant/mega/inhab/web-password/mandats/6 PDF rapports/users-admin-only/lecteur-readonly/editeur-no-delete-avocat). Frontend has CRITICAL crash on AvocatSheet: ReferenceError 'QC_DISTRICTS is not defined' — blocks all 5 tabs. Rapports page renders OK with all 6 download buttons; mandat-form not found on Rapports (likely needs to scroll or is on a different sub-route).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AvocatSheet.jsx (lines 372, 375)", "issue": "ReferenceError: QC_DISTRICTS is not defined — crashes the entire avocat sheet, makes 5 tabs (tab-ident/tab-adr/tab-inhab/tab-mega/tab-web) unreachable in the rendered DOM. Need to import or define QC_DISTRICTS array (list of Quebec districts with {id, name}).", "selector": "AvocatSheet → Méga tab district switches", "priority": "CRITICAL"},
+      {"component": "Rapports page", "issue": "data-testid='mandat-form' not found in DOM after navigating to /rapports. Either the form is collapsed/lazy or selector missing.", "selector": "[data-testid=\"mandat-form\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_features_v2.py", "/app/backend/tests/test_gestioncardex.py", "/app/test_reports/pytest/v2_results.xml"],
+  "action_items": [
+    "URGENT: Define/import QC_DISTRICTS in /app/frontend/src/components/AvocatSheet.jsx (e.g., const QC_DISTRICTS = [{id:1,name:'Montréal'}, ...] or import from constants file). This crash blocks all 5-tab UI testing.",
+    "Verify mandat-form is rendered/visible on /rapports (or add data-testid)."
+  ],
+  "critical_code_review_comments": [
+    "AvocatSheet.jsx references undefined symbol QC_DISTRICTS (runtime crash) — basic dev test would have caught this. Add an ESLint no-undef rule + smoke test.",
+    "server.py still uses deprecated @app.on_event('startup'/'shutdown') — migrate to FastAPI lifespan().",
+    "No brute-force lockout on /api/auth/login (playbook recommends after 5 fails).",
+    "Cookie secure=False hardcoded — drive via COOKIE_SECURE env for prod."
+  ],
+  "updated_files": ["/app/backend/tests/test_features_v2.py", "/app/test_reports/iteration_2.json"],
+  "success_rate": {"backend": "100%", "frontend": "40% (login + sidebar + Rapports buttons OK; AvocatSheet 5 tabs blocked by JS crash)"},
+  "test_credentials": "admin@gestioncardex.qc / Admin2026! (from /app/memory/test_credentials.md). Test users created via API for permissions matrix and cleaned up.",
+  "seed_data_creation": "Tests create avocats with prefixes T/S/N/D/E/L (UUID-suffixed) and test users test_editeur_*@x.qc, test_lecteur_*@x.qc — all cleaned via fixtures.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend fully validated. After main agent fixes QC_DISTRICTS, retest AvocatSheet 5-tab workflow: create avocat → tabs become enabled → fill mega (mega-francais, mega-art486, mega-tous-districts, save-mega-btn) → inhabilités (add-inhab-btn, save-inhab-btn) → web (web-codeusager, save-web-password). Pytest entry: pytest /app/backend/tests/ -v. v2 test file: test_features_v2.py.",
+  "rca_of_the_issue": "AvocatSheet.jsx uses QC_DISTRICTS at lines 372 and 375 (Méga tab district selector) but never imports or declares it. Result: React component throws ReferenceError on mount → ErrorBoundary/runtime overlay covers the whole avocat sheet → no tabs render → playwright cannot find tab-ident/tab-adr/tab-inhab/tab-mega/tab-web. Fix: declare const QC_DISTRICTS = [{id:1,name:'Abitibi'},...] (Quebec judicial districts) in AvocatSheet.jsx or import from a constants module."
+}

@@ -723,6 +723,133 @@ async def rapport_registre97(date_debut: str, date_fin: str, user: dict = Depend
                              headers={"Content-Disposition": f'attachment; filename="registre97_{date_debut}_{date_fin}.pdf"'})
 
 
+def _build_avocat_list_pdf(title: str, subtitle: str, columns: list, rows_par_groupe: dict) -> bytes:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib import colors
+    from io import BytesIO
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, leftMargin=1.5*cm, rightMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
+    styles = getSampleStyleSheet()
+    h_t = ParagraphStyle("t", parent=styles["Heading1"], fontSize=14, alignment=1)
+    h_s = ParagraphStyle("s", parent=styles["Normal"], fontSize=10, alignment=1, spaceAfter=12)
+    h_g = ParagraphStyle("g", parent=styles["Heading2"], fontSize=11, spaceBefore=12, spaceAfter=4, textColor=colors.HexColor("#0033A0"))
+    n = ParagraphStyle("n", parent=styles["Normal"], fontSize=8)
+    el = [Paragraph("Commission des services juridiques", h_t), Paragraph(subtitle, h_s),
+          Paragraph(f"<b>{title}</b>", n), Spacer(1, 0.3*cm)]
+    headers = [c["label"] for c in columns]
+    keys = [c["key"] for c in columns]
+    grand = 0
+    for grp, items in rows_par_groupe.items():
+        el.append(Paragraph(f"{grp} ({len(items)})", h_g))
+        data = [headers] + [[str(it.get(k, "") or "") for k in keys] for it in items]
+        tbl = Table(data, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#0033A0")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 8),
+            ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F8FAFC")]),
+        ]))
+        el.append(tbl)
+        grand += len(items)
+    el.append(Spacer(1, 0.4*cm))
+    el.append(Paragraph(f"<b>Total général : {grand} avocat(s)</b>", h_g))
+    doc.build(el)
+    return buf.getvalue()
+
+
+async def _avocats_with_adresse(query: dict = None) -> list:
+    docs = await db.avocats.find(query or {}, {"_id": 0}).sort([("nom", 1), ("prenom", 1)]).to_list(length=10000)
+    return docs
+
+
+@api_router.get("/rapports/liste-det-bar")
+async def rap_listedetbar(user: dict = Depends(get_current_user)):
+    avos = await _avocats_with_adresse({"actif": True})
+    grp = {}
+    for a in avos:
+        key = a.get("sectbar") or "(Sans section)"
+        a["ville"] = (a.get("adresse") or {}).get("ville", "")
+        a["tel"] = (a.get("adresse") or {}).get("telephone", "")
+        grp.setdefault(key, []).append(a)
+    pdf = _build_avocat_list_pdf("Liste détaillée par Section Barreau", "Avocats actifs",
+                                 [{"key":"code","label":"Code"},{"key":"nom","label":"Nom"},{"key":"prenom","label":"Prénom"},
+                                  {"key":"ville","label":"Ville"},{"key":"tel","label":"Téléphone"}], grp)
+    return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                             headers={"Content-Disposition": 'attachment; filename="liste_det_bar.pdf"'})
+
+
+@api_router.get("/rapports/liste-det-dist")
+async def rap_listedetdist(user: dict = Depends(get_current_user)):
+    avos = await _avocats_with_adresse({"actif": True})
+    grp = {}
+    for a in avos:
+        key = (a.get("adresse") or {}).get("ville") or "(Sans district)"
+        a["tel"] = (a.get("adresse") or {}).get("telephone", "")
+        a["email"] = (a.get("adresse") or {}).get("email", "")
+        grp.setdefault(key, []).append(a)
+    pdf = _build_avocat_list_pdf("Liste détaillée par District", "Avocats actifs",
+                                 [{"key":"code","label":"Code"},{"key":"nom","label":"Nom"},{"key":"prenom","label":"Prénom"},
+                                  {"key":"tel","label":"Téléphone"},{"key":"email","label":"Courriel"}], grp)
+    return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                             headers={"Content-Disposition": 'attachment; filename="liste_det_dist.pdf"'})
+
+
+@api_router.get("/rapports/liste-det-reg")
+async def rap_listedetreg(user: dict = Depends(get_current_user)):
+    avos = await _avocats_with_adresse({})
+    grp = {}
+    for a in avos:
+        key = "Actifs" if a.get("actif") else "Passifs"
+        a["ville"] = (a.get("adresse") or {}).get("ville", "")
+        grp.setdefault(key, []).append(a)
+    pdf = _build_avocat_list_pdf("Liste détaillée du Registre", "Tous les avocats",
+                                 [{"key":"code","label":"Code"},{"key":"nom","label":"Nom"},{"key":"prenom","label":"Prénom"},
+                                  {"key":"sectbar","label":"Section"},{"key":"ville","label":"Ville"}], grp)
+    return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                             headers={"Content-Disposition": 'attachment; filename="liste_det_reg.pdf"'})
+
+
+@api_router.get("/rapports/liste-som")
+async def rap_listesom(user: dict = Depends(get_current_user)):
+    avos = await _avocats_with_adresse({"actif": True})
+    grp = {"Actifs": avos}
+    pdf = _build_avocat_list_pdf("Liste sommaire", "Avocats actifs",
+                                 [{"key":"code","label":"Code"},{"key":"nom","label":"Nom"},{"key":"prenom","label":"Prénom"},
+                                  {"key":"sectbar","label":"Section"}], grp)
+    return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                             headers={"Content-Disposition": 'attachment; filename="liste_som.pdf"'})
+
+
+@api_router.get("/rapports/registre98")
+async def rap_registre98(date_debut: str, date_fin: str, user: dict = Depends(get_current_user)):
+    # Groupé par code nature (article du Code criminel)
+    cursor = db.mandats.find({"date_ordonnance": {"$gte": date_debut, "$lte": date_fin}}, {"_id": 0})
+    avo_cache = {}
+    grp = {}
+    for m in await cursor.to_list(length=10000):
+        if m["avocat_id"] not in avo_cache:
+            a = await db.avocats.find_one({"id": m["avocat_id"]}, {"_id": 0})
+            avo_cache[m["avocat_id"]] = a or {}
+        a = avo_cache[m["avocat_id"]]
+        m["avocat_code"] = a.get("code", "")
+        m["avocat_nom"] = f"{a.get('nom','')}, {a.get('prenom','')}"
+        m["sectbar"] = a.get("sectbar", "")
+        key = f"Article {m.get('article', '?')} C.cr."
+        grp.setdefault(key, []).append(m)
+    pdf = _build_avocat_list_pdf("Registre Article 98 — par code nature", f"Période du {date_debut} au {date_fin}",
+                                 [{"key":"avocat_code","label":"Code"},{"key":"avocat_nom","label":"Avocat"},
+                                  {"key":"requerant","label":"Requérant"},{"key":"date_ordonnance","label":"Date ord."},
+                                  {"key":"numero","label":"Mandat"},{"key":"sectbar","label":"Section"}], grp)
+    return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="registre98_{date_debut}_{date_fin}.pdf"'})
+
+
 @api_router.get("/")
 async def root():
     return {"app": "GestionCardex", "version": "1.0.0"}

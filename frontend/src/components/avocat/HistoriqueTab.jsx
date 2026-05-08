@@ -43,11 +43,16 @@ export const HistoriqueTab = ({ avocatId }) => {
         api.get(`/avocats/${avocatId}/audit`, { params: { page, page_size: PAGE_SIZE } })
             .then(({ data }) => {
                 if (cancelled) return;
+                const t = data.total || 0;
                 setItems(data.items || []);
-                setTotal(data.total || 0);
+                setTotal(t);
+                // Clamp si la page courante a été vidée (entrées supprimées entre temps)
+                const tp = Math.max(1, Math.ceil(t / PAGE_SIZE));
+                if (page > tp) setPage(tp);
             })
-            .catch(() => {
+            .catch((err) => {
                 if (cancelled) return;
+                console.warn("Audit fetch failed:", err);
                 setItems([]);
                 setTotal(0);
             });

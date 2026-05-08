@@ -203,9 +203,17 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - **Bug corrigé en cours d'itération** : conversion `useRef → useState` pour les baselines afin que `setBaseline()` invalide les `useMemo` (sans ça le dirty-mega restait visible après save).
 - **Tests** : `iteration_7.json` — backend 10/10 pytest (100%), frontend après fix dirty-mega : tous les flags se mettent à jour correctement, test live confirmé.
 
-## Backlog après Phase 6
+## Phase 7 — Pagination historique + timestamp BSON natif (2026-02 fork)
+**Implémenté** :
+- **Backend** — Endpoint `GET /api/avocats/{id}/audit` retourne maintenant `{items, total, page, page_size}` avec `page` (ge=1) et `page_size` (ge=1, le=200, défaut=20). Validation 422 automatique via FastAPI `Query()`.
+- **Backend** — Helper `_audit()` stocke maintenant `timestamp` en `datetime` BSON natif. `_audit_to_out()` convertit en ISO string pour la réponse HTTP. Tri/index plus robustes.
+- **Backend** — Migration idempotente au startup : convertit les anciens timestamps ISO string → datetime BSON natif (19 entrées converties au déploiement).
+- **Frontend** — `HistoriqueTab` adapté : compteur `hist-count`, boutons `hist-prev`/`hist-next` visibles uniquement si `totalPages > 1`, reset page à 1 lors d'un changement d'avocat, clamp défensif si la page courante devient vide (entrées supprimées), `console.warn` sur erreur fetch.
+- **Tests** : `iteration_8.json` — **backend 21/21 (100%)**, **frontend 7/7 (100%)**, aucune régression. Mongo direct check confirme : 0 timestamp string restant, 19 datetime BSON.
+
+## Backlog après Phase 7
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
 - **P3** Streaming PDF par chunks pour gros datasets (actuellement tout en mémoire)
-- **P3** Stocker timestamps audit en datetime BSON natif au lieu d'ISO string (plus robuste)
-- **P3** Pagination de l'historique côté UI (actuellement limit=200)
+- **P3** Export CSV de l'historique audit (preuve formelle pour audits Barreau/Commission)
 - **P3** Tests E2E par rôles (admin/éditeur/lecteur) systématiques
+- **P3** Bilingue FR/EN (extension future)

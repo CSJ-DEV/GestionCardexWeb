@@ -219,7 +219,34 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - **Plein écran** : `SheetContent` passe à `!w-screen !max-w-none`, contenu centré dans `max-w-7xl mx-auto` pour rester lisible sur très grand écran.
 - **Tests** : smoke test live confirmé — création multi-types (A/P/N) génère bien `A00002`, `P00001`, `N00001` ; 5 créations concurrentes → 5 codes uniques.
 
-## Backlog après Phase 8
+## Phase 9 — Migration MongoDB → SQLAlchemy/SQLite (2026-02 fork, suite)
+**Implémenté** :
+- **Renommage des BDD** : `sCardAvo.db` → `CardAvo.db`, `sStaticPc.db` → `StaticPc.db`, `sArt52.db` → `Art52.db` (préfixe `s` retiré).
+- **Backend complètement migré** de MongoDB/Motor vers SQLAlchemy 2.0 / SQLite local. Plus aucun appel `db.find_one`/`db.insert_one` Mongo. Tous les endpoints utilisent `Session = Depends(get_db)`.
+- **Nouveaux fichiers** :
+  - `/app/backend/database.py` : engine + sessionmaker, FK SQLite activées via PRAGMA, switchable vers SQL Server par simple changement de `DATABASE_URL`.
+  - `/app/backend/models.py` : 9 modèles ORM (Avocat, Adresse, InfoMega, InfoDistrict, Inhpra, AppUser, AuditLog, Connexion, Mandat) avec mapping legacy (CamelCase preserved + `O`/`N` booléens via helpers `yn_to_bool`/`bool_to_yn`).
+  - `/app/backend/scripts/init_app_schema.py` : script idempotent qui renomme les fichiers + ajoute les colonnes app aux tables legacy + crée les 4 tables app (AppUsers, AuditLog, Connexions, **Mandats**).
+- **Nouvelle table `Mandats`** dans CardAvo.db (avant : MongoDB) — colonnes : id, avocat_id, requerant, article, date_ordonnance, date_emission, numero, groupe, commentaire, usermodif, created_at, updated_at + index sur avocat_id et date_ordonnance.
+- **Tables legacy étendues** (colonnes app ajoutées par ALTER TABLE) :
+  - `Avocats` : id (UUID), type_code, actif, attente, annee_barreau, taxes, web_password_hash, villerref, adresse_courante (JSON), created_at, updated_at.
+  - `Adresses` : id, avocat_id, address (alias moderne), email, created_at, updated_at. `RowId` legacy populé avec le même UUID.
+  - `infomega` : id, avocat_id, tous_districts, created_at, updated_at.
+  - `inhpra` : uuid (TEXT, exposé comme `id` côté API), avocat_id, created_at, updated_at — `Id` INTEGER legacy conservé.
+- **Adaptations critiques** :
+  - Booléens stockés en `'O'/'N'` legacy mais exposés en bool dans l'API (rétro-compat seamless).
+  - `adresse` embedded de l'avocat est sérialisé en JSON dans la colonne `adresse_courante`.
+  - Districts (many-to-many) dans `infodistrict` : delete-and-reinsert lors de chaque PUT mega.
+  - Suppression d'un avocat → cascade sur Adresses + InfoMega + Inhpra + Mandats + InfoDistrict.
+  - JWT auth, brute-force lockout (héritée), Fernet password encryption pour Connexions — tout fonctionnel.
+- **Tests** : `iteration_9.json` — **39/39 tests SQLAlchemy PASS** (auth, avocats, adresses, méga, inhab, mandats, audit, web pwd, 6 rapports PDF, connexions admin/ti, lecteur 403, persistance après restart).
+- **Frontend inchangé** : le contrat API est identique (snake_case, mêmes champs), aucune modification UI requise.
+
+**Documentation mise à jour** :
+- `/app/memory/SCHEMAS_SQL_LEGACY.md` : références mises à jour CardAvo/StaticPc/Art52.
+- `/app/memory/TABLES_AJOUTEES_APP.md` : ajout de la table Mandats (T-SQL fournie pour SQL Server).
+
+**Backlog après Phase 9** :
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
 - **P3** Streaming PDF par chunks pour gros datasets
 - **P3** Export CSV historique audit (preuve formelle pour audits Barreau/Commission)

@@ -608,6 +608,7 @@ def delete_avocat(avocat_id: str, user: dict = Depends(require_role("admin")),
     db.query(Adresse).filter_by(avocat_id=avocat_id).delete()
     db.query(InfoMega).filter_by(avocat_id=avocat_id).delete()
     db.query(Inhpra).filter_by(avocat_id=avocat_id).delete()
+    db.query(Mandat).filter_by(avocat_id=avocat_id).delete()
     if code:
         db.query(InfoDistrict).filter_by(code=code).delete()
     db.delete(a)

@@ -17,6 +17,7 @@
 | `AppUsers` | Comptes utilisateurs de l'app (admin / ti / éditeur / lecteur) | quelques dizaines |
 | `AuditLog` | Historique de chaque modification de fiche avocat | en croissance continue |
 | `Connexions` | Catalogue des connexions BDD (MongoDB / SQL Server / SQLite) | < 20 |
+| `Mandats` | Mandats légaux (Article 486.3 / 486.7 / 672 / 684) — alimente Registre97/98 | en croissance continue |
 
 ---
 
@@ -152,6 +153,45 @@ GO
 - À l'initialisation, l'app insère 4 lignes seed :
   - `MongoDB principal (en service)` (is_primary=1)
   - `sCardAvo (SQLite local)`, `sStaticPc (SQLite local)`, `sArt52 (SQLite local)`
+
+---
+
+## 4️⃣ `Mandats` — Mandats légaux (Registre 97 / 98)
+
+```sql
+USE [CardAvo];
+GO
+
+CREATE TABLE [dbo].[Mandats](
+    [id]              [uniqueidentifier] NOT NULL,
+    [avocat_id]       [uniqueidentifier] NOT NULL,                  -- FK logique → Avocats.id
+    [requerant]       [varchar](200)     NULL,
+    [article]         [varchar](20)      NOT NULL CONSTRAINT [DF_Mandats_article] DEFAULT ('486.3'),
+    [date_ordonnance] [varchar](30)      NULL,                      -- format ISO yyyy-mm-dd
+    [date_emission]   [varchar](30)      NULL,
+    [numero]          [varchar](50)      NULL,
+    [groupe]          [varchar](50)      NOT NULL CONSTRAINT [DF_Mandats_groupe] DEFAULT ('Pratique Privée'),
+    [commentaire]     [nvarchar](max)    NULL,
+    [usermodif]       [varchar](50)      NULL,
+    [created_at]      [datetime2](7)     NOT NULL CONSTRAINT [DF_Mandats_created_at] DEFAULT (sysutcdatetime()),
+    [updated_at]      [datetime2](7)     NOT NULL CONSTRAINT [DF_Mandats_updated_at] DEFAULT (sysutcdatetime()),
+ CONSTRAINT [PK_Mandats] PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY];
+GO
+
+CREATE NONCLUSTERED INDEX [IX_Mandats_avocat] ON [dbo].[Mandats]([avocat_id] ASC);
+CREATE NONCLUSTERED INDEX [IX_Mandats_dates] ON [dbo].[Mandats]([date_ordonnance] ASC);
+GO
+
+ALTER TABLE [dbo].[Mandats]
+    ADD CONSTRAINT [CK_Mandats_article] CHECK ([article] IN ('486.3','486.7','672','684'));
+GO
+```
+
+### Notes
+- Cette table n'existait pas dans le legacy SQL Server — créée pour alimenter les rapports `Registre97` (article 486.3 / 486.7) et `Registre98` (672 / 684).
+- `groupe` permet de séparer Pratique Privée / Permanent dans les groupements de rapports.
+- En SQLite local (`CardAvo.db`), la table existe déjà avec les mêmes colonnes (types adaptés `TEXT`/`INTEGER`).
 
 ---
 

@@ -211,9 +211,18 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - **Frontend** — `HistoriqueTab` adapté : compteur `hist-count`, boutons `hist-prev`/`hist-next` visibles uniquement si `totalPages > 1`, reset page à 1 lors d'un changement d'avocat, clamp défensif si la page courante devient vide (entrées supprimées), `console.warn` sur erreur fetch.
 - **Tests** : `iteration_8.json` — **backend 21/21 (100%)**, **frontend 7/7 (100%)**, aucune régression. Mongo direct check confirme : 0 timestamp string restant, 19 datetime BSON.
 
-## Backlog après Phase 7
+## Phase 8 — Code avocat généré au save + plein écran (2026-02 fork)
+**Implémenté** :
+- **Génération du code au save** : le code n'est plus pré-affiché. Format `<A|P|N><5 chiffres>` (ex `A00001`, `P00042`). Le code envoyé par le frontend est ignoré ; le serveur le calcule à partir du dernier code existant pour ce type, avec retry sur `DuplicateKeyError` (5 essais) pour gérer les créations concurrentes — testé avec 5 créations parallèles → 5 codes uniques séquentiels.
+- **AvocatCreate.code** est maintenant `Optional[str]`. L'endpoint `GET /next-code` reste exposé comme aperçu indicatif uniquement (utilise le même helper `_generate_avocat_code`).
+- **UI** : champ Code vide avec placeholder « *— attribué automatiquement —* » en création, label devient « *Code (généré à la sauvegarde)* ». Plus de pré-fetch lors d'un changement de type.
+- **Plein écran** : `SheetContent` passe à `!w-screen !max-w-none`, contenu centré dans `max-w-7xl mx-auto` pour rester lisible sur très grand écran.
+- **Tests** : smoke test live confirmé — création multi-types (A/P/N) génère bien `A00002`, `P00001`, `N00001` ; 5 créations concurrentes → 5 codes uniques.
+
+## Backlog après Phase 8
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
-- **P3** Streaming PDF par chunks pour gros datasets (actuellement tout en mémoire)
-- **P3** Export CSV de l'historique audit (preuve formelle pour audits Barreau/Commission)
+- **P3** Streaming PDF par chunks pour gros datasets
+- **P3** Export CSV historique audit (preuve formelle pour audits Barreau/Commission)
+- **P3** Filtre par type d'action sur l'onglet Historique
 - **P3** Tests E2E par rôles (admin/éditeur/lecteur) systématiques
 - **P3** Bilingue FR/EN (extension future)

@@ -30,8 +30,14 @@ export const IdentificationTab = ({
                     </SelectContent>
                 </Select>
             </Field>
-            <Field label="Code (auto-généré)">
-                <Input value={form.code} disabled className="rounded-md font-mono" data-testid="avocat-input-code" />
+            <Field label={isEditing ? "Code" : "Code (généré à la sauvegarde)"}>
+                <Input
+                    value={isEditing ? (form.code || "") : ""}
+                    placeholder={isEditing ? "" : "— attribué automatiquement —"}
+                    disabled
+                    className="rounded-md font-mono"
+                    data-testid="avocat-input-code"
+                />
             </Field>
             <Field label="Section barreau">
                 <Input value={form.sectbar} onChange={(e) => upd("sectbar", e.target.value)} disabled={readOnly} className="rounded-md" />

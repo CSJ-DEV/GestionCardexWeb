@@ -189,7 +189,9 @@ class Adresse(BaseModel):
 
 class AvocatBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    code: str = Field(..., min_length=1, max_length=10)
+    # Code optionnel : il est généré côté serveur lors de la création
+    # (format <type><5 chiffres>, ex A00001) et obligatoire en mise à jour.
+    code: Optional[str] = Field(None, max_length=10)
     type_code: str = Field("A", description="A=Avocat permanent, P=Avocat privé, N=Notaire")
     nom: str = Field(..., min_length=1, max_length=80)
     prenom: str = Field(..., min_length=1, max_length=80)
@@ -327,9 +329,22 @@ async def next_avocat_code(
     type: str = Query("A", pattern="^[ANP]$"),
     user: dict = Depends(get_current_user),
 ):
-    """Génère le prochain code séquentiel selon le type (A/N/P)."""
+    """Aperçu du prochain code séquentiel selon le type (A/N/P).
+    NOTE : valeur indicative seulement — le code réel est attribué au moment
+    de la sauvegarde via _generate_avocat_code() pour éviter les collisions
+    si plusieurs créations sont en cours simultanément.
+    """
+    code = await _generate_avocat_code(type)
+    return {"code": code}
+
+
+async def _generate_avocat_code(type_code: str) -> str:
+    """Génère le prochain code séquentiel basé sur le plus grand code existant
+    pour ce type. Format : <type_code><5 chiffres> (ex. A00001, P00042).
+    """
+    type_code = (type_code or "A").upper()
     cursor = db.avocats.find(
-        {"code": {"$regex": f"^{type}\\d+$"}},
+        {"code": {"$regex": f"^{type_code}\\d+$"}},
         {"_id": 0, "code": 1},
     ).sort("code", -1).limit(1)
     docs = await cursor.to_list(length=1)
@@ -339,7 +354,7 @@ async def next_avocat_code(
             next_num = int(docs[0]["code"][1:]) + 1
         except (ValueError, IndexError):
             next_num = 1
-    return {"code": f"{type}{next_num:04d}"}
+    return f"{type_code}{next_num:05d}"
 
 
 @api_router.get("/avocats/stats", response_model=StatsOut)
@@ -365,22 +380,35 @@ async def get_avocat(avocat_id: str, user: dict = Depends(get_current_user)):
 async def create_avocat(payload: AvocatCreate, user: dict = Depends(require_role("admin", "editeur"))):
     if payload.nas and not funcValidNoAssSoc(payload.nas):
         raise HTTPException(status_code=422, detail="Numéro NAS invalide (algorithme Luhn)")
-    existing = await db.avocats.find_one({"code": payload.code})
-    if existing:
-        raise HTTPException(status_code=409, detail=f"Le code '{payload.code}' existe déjà")
+    type_code = (payload.type_code or "A").upper()
+    if type_code not in {"A", "N", "P"}:
+        raise HTTPException(status_code=422, detail="type_code invalide (A/N/P)")
     now = datetime.now(timezone.utc).isoformat()
-    doc = payload.model_dump()
-    doc.update({
-        "id": str(uuid.uuid4()),
+    base_doc = payload.model_dump()
+    base_doc.pop("code", None)  # le code reçu côté frontend est ignoré
+    base_doc.update({
+        "type_code": type_code,
         "created_at": now,
         "updated_at": now,
         "usermodif": user.get("email", ""),
     })
-    await db.avocats.insert_one(doc.copy())
-    doc.pop("_id", None)
-    await _audit(doc["id"], "create", user.get("email", ""),
-                 f"Création de la fiche {doc.get('code','')} — {doc.get('nom','')}, {doc.get('prenom','')}")
-    return AvocatOut(**doc)
+    # Retry court sur DuplicateKeyError pour gérer les créations concurrentes
+    from pymongo.errors import DuplicateKeyError
+    last_err: Optional[Exception] = None
+    for _ in range(5):
+        code = await _generate_avocat_code(type_code)
+        doc = {**base_doc, "code": code, "id": str(uuid.uuid4())}
+        try:
+            await db.avocats.insert_one(doc.copy())
+            doc.pop("_id", None)
+            await _audit(doc["id"], "create", user.get("email", ""),
+                         f"Création de la fiche {code} — {doc.get('nom','')}, {doc.get('prenom','')}")
+            return AvocatOut(**doc)
+        except DuplicateKeyError as e:
+            last_err = e
+            continue
+    logger.error(f"Avocat code generation failed after retries: {last_err}")
+    raise HTTPException(status_code=500, detail="Impossible de générer un code unique. Réessayez.")
 
 
 @api_router.put("/avocats/{avocat_id}", response_model=AvocatOut)

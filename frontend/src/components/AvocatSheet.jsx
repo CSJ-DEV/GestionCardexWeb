@@ -82,9 +82,6 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
             setInhabs([]);
             setMega(EMPTY_MEGA);
             setBaseline((b) => ({ ...b, mega: stable(EMPTY_MEGA) }));
-            if (avocat) {
-                api.get(`/avocats/next-code?type=A`).then(({ data }) => setForm((f) => ({ ...f, code: data.code }))).catch(() => {});
-            }
             return;
         }
         api.get(`/avocats/${avocatId}/adresses`).then(({ data }) => setAdresses(data || [])).catch(() => setAdresses([]));
@@ -112,20 +109,20 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
 
     const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-    const onTypeChange = async (t) => {
+    const onTypeChange = (t) => {
+        // Plus de pré-fetch — le code définitif est attribué côté serveur au save
         upd("type_code", t);
-        if (!isEditing) {
-            try {
-                const { data } = await api.get(`/avocats/next-code?type=${t}`);
-                upd("code", data.code);
-            } catch { /* ignore */ }
-        }
     };
 
     const handleSubmit = async (e) => {
         e?.preventDefault?.();
-        if (!form.code || !form.nom || !form.prenom) {
-            toast.error("Code, nom et prénom sont requis");
+        // En création, le code est attribué côté serveur ; on n'exige plus le champ
+        if (!form.nom || !form.prenom) {
+            toast.error("Nom et prénom sont requis");
+            return;
+        }
+        if (isEditing && !form.code) {
+            toast.error("Code manquant");
             return;
         }
         setSaving(true);

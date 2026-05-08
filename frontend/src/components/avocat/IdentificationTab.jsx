@@ -17,7 +17,7 @@ const STATUTS = [
 
 export const IdentificationTab = ({
     form, upd, isEditing, readOnly, saving, onTypeChange,
-    onSubmit, onCancel,
+    onSubmit, onCancel, savedMega,
 }) => (
     <form onSubmit={onSubmit} className="space-y-6" data-testid="avocat-form">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -75,12 +75,30 @@ export const IdentificationTab = ({
         <Separator />
         <div className="overline">Statuts</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {STATUTS.map((o) => (
-                <div key={o.k} className="flex items-center justify-between border border-slate-200 rounded-md px-3 py-2">
-                    <Label className="text-sm">{o.l}</Label>
-                    <Switch checked={!!form[o.k]} onCheckedChange={(v) => upd(o.k, v)} disabled={readOnly} data-testid={`avocat-switch-${o.k}`} />
-                </div>
-            ))}
+            {STATUTS.map((o) => {
+                // Cas spécial Méga : indique à l'utilisateur que l'onglet ne sera
+                // accessible qu'après sauvegarde de l'identification.
+                const megaPendingSave = o.k === "mega" && isEditing && !!form.mega && !savedMega;
+                const megaPendingDisable = o.k === "mega" && isEditing && !form.mega && !!savedMega;
+                return (
+                    <div key={o.k} className="flex flex-col border border-slate-200 rounded-md px-3 py-2">
+                        <div className="flex items-center justify-between">
+                            <Label className="text-sm">{o.l}</Label>
+                            <Switch checked={!!form[o.k]} onCheckedChange={(v) => upd(o.k, v)} disabled={readOnly} data-testid={`avocat-switch-${o.k}`} />
+                        </div>
+                        {megaPendingSave && (
+                            <p className="text-xs text-amber-700 mt-1.5" data-testid="mega-pending-hint">
+                                ⚠ Cliquez sur « Mettre à jour » pour activer l'onglet Méga.
+                            </p>
+                        )}
+                        {megaPendingDisable && (
+                            <p className="text-xs text-amber-700 mt-1.5" data-testid="mega-pending-hint">
+                                ⚠ Cliquez sur « Mettre à jour » pour désactiver l'onglet Méga.
+                            </p>
+                        )}
+                    </div>
+                );
+            })}
         </div>
 
         <Separator />

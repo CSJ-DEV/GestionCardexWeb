@@ -58,12 +58,13 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     // désactive le flag « Méga » dans Identification.
     const [activeTab, setActiveTab] = useState("ident");
 
-    // Si on est sur l'onglet Méga et que le flag bascule à false → retour à Identification
+    // Si on est sur l'onglet Méga et que l'avocat persisté n'a plus le flag « Méga »
+    // (toggle off + save), retour à Identification.
     useEffect(() => {
-        if (activeTab === "mega" && !form.mega) {
+        if (activeTab === "mega" && !avocat?.mega) {
             setActiveTab("ident");
         }
-    }, [form.mega, activeTab]);
+    }, [avocat?.mega, activeTab]);
 
     // Baselines (= état "propre" après dernier load/save) — useState pour que tout
     // changement déclenche la recomputation des useMemo dirty (sinon useRef reste invisible à React).
@@ -261,9 +262,9 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                             Inhabilité {inhabs.length > 0 && `(${inhabs.length})`}
                             <DirtyDot visible={inhabDirty} testId="dirty-inhab" />
                         </TabsTrigger>
-                        <TabsTrigger value="mega" disabled={!isEditing || !form.mega} data-testid="tab-mega">
+                        <TabsTrigger value="mega" disabled={!isEditing || !avocat?.mega} data-testid="tab-mega">
                             Méga
-                            <DirtyDot visible={megaDirty && !!form.mega} testId="dirty-mega" />
+                            <DirtyDot visible={megaDirty && !!avocat?.mega} testId="dirty-mega" />
                         </TabsTrigger>
                         <TabsTrigger value="web" disabled={!isEditing} data-testid="tab-web">
                             Web
@@ -281,6 +282,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                             form={form} upd={upd} isEditing={isEditing} readOnly={readOnly}
                             saving={saving} onTypeChange={onTypeChange}
                             onSubmit={handleSubmit} onCancel={() => onOpenChange(false)}
+                            savedMega={!!avocat?.mega}
                         />
                     </TabsContent>
 

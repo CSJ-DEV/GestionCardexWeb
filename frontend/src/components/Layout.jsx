@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutGrid, Users, LogOut, Scale, Search, ShieldCheck } from "lucide-react";
+import { LayoutGrid, Users, LogOut, Scale, Search, ShieldCheck, FileText } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ export default function Layout() {
     const navItems = [
         { to: "/", icon: LayoutGrid, label: "Tableau de bord", testId: "nav-dashboard" },
         { to: "/avocats", icon: Users, label: "Avocats", testId: "nav-avocats" },
+        { to: "/rapports", icon: FileText, label: "Rapports", testId: "nav-rapports" },
         ...(isAdmin ? [{ to: "/utilisateurs", icon: ShieldCheck, label: "Utilisateurs", testId: "nav-users" }] : []),
     ];
 

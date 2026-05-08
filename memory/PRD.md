@@ -131,3 +131,20 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 
 ### URLs PDF d'exemple (pour référence)
 - Registre97.pdf, ListeDetBar.pdf, ListeDetDist.pdf, ListeDetReg.pdf, ListeSom.pdf — disponibles via customer-assets.emergentagent.com (job_cardex-migrate)
+
+## Phase 3b — Mandats + Registre97 PDF (2026-05-08)
+**Implémenté** :
+- **Modèle Mandat** : avocat_id, requerant, article (486.3/486.7/672/684), date_ordonnance, date_emission, numero, groupe (Pratique Privée/Permanent), commentaire
+- **CRUD `/api/mandats`** complet (list avec filtres, create, update, delete)
+- **PDF Registre97** via ReportLab : `GET /api/rapports/registre97?date_debut=&date_fin=`
+  - Reproduit la mise en page : titre Commission, sections Article 486.3 / 486.7, groupes (Pratique Privée/Permanent), tableau bleu, sous-totaux, totaux par article
+- **Page `/rapports`** frontend : générateur Registre97 (date début/fin + bouton télécharger) + tableau CRUD des mandats + Sheet de saisie
+- **Lien sidebar « Rapports »** (icône FileText) pour tous les rôles
+- **Permissions** : create/update mandat = admin/editeur, delete = admin
+- Tests curl ✅ : mandat créé, liste OK, PDF généré (2.5 KB, signature %PDF valide)
+- `reportlab` ajouté à requirements.txt
+
+**Non implémenté (prochaines itérations)** :
+- 4 autres rapports PDF : ListeDetBar, ListeDetDist, ListeDetReg, ListeSom (PDF reçus mais non analysés)
+- Registre98 (PDF reçu mais non implémenté)
+- Tests E2E par rôles avec testing_agent

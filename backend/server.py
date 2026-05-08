@@ -13,6 +13,7 @@ from typing import List, Optional
 import bcrypt
 import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
+from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
@@ -499,6 +500,29 @@ class Inhabilite(BaseModel):
     comm: Optional[str] = ""
 
 
+class MandatBase(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    avocat_id: str
+    requerant: str = ""
+    article: str = "486.3"  # 486.3, 486.7, 672, 684
+    date_ordonnance: Optional[str] = ""
+    date_emission: Optional[str] = ""
+    numero: str = ""
+    groupe: str = "Pratique Privée"  # Pratique Privée | Permanent
+    commentaire: Optional[str] = ""
+
+
+class MandatUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    requerant: Optional[str] = None
+    article: Optional[str] = None
+    date_ordonnance: Optional[str] = None
+    date_emission: Optional[str] = None
+    numero: Optional[str] = None
+    groupe: Optional[str] = None
+    commentaire: Optional[str] = None
+
+
 @api_router.get("/avocats/{avocat_id}/mega")
 async def get_mega(avocat_id: str, user: dict = Depends(get_current_user)):
     doc = await db.avocat_mega.find_one({"avocat_id": avocat_id}, {"_id": 0})
@@ -582,6 +606,121 @@ async def set_web_password(avocat_id: str, payload: dict, user: dict = Depends(r
 async def clear_web_password(avocat_id: str, user: dict = Depends(require_role("admin", "editeur"))):
     await db.avocats.update_one({"id": avocat_id}, {"$unset": {"web_password_hash": ""}})
     return {"ok": True}
+
+
+# ---------- Mandats CRUD ----------
+@api_router.get("/mandats")
+async def list_mandats(
+    user: dict = Depends(get_current_user),
+    avocat_id: Optional[str] = None,
+    article: Optional[str] = None,
+    date_debut: Optional[str] = None,
+    date_fin: Optional[str] = None,
+):
+    q = {}
+    if avocat_id: q["avocat_id"] = avocat_id
+    if article: q["article"] = article
+    if date_debut and date_fin:
+        q["date_ordonnance"] = {"$gte": date_debut, "$lte": date_fin}
+    docs = await db.mandats.find(q, {"_id": 0}).sort("date_ordonnance", -1).to_list(length=2000)
+    return docs
+
+
+@api_router.post("/mandats", status_code=201)
+async def create_mandat(payload: MandatBase, user: dict = Depends(require_role("admin", "editeur"))):
+    if not await db.avocats.find_one({"id": payload.avocat_id}):
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = payload.model_dump()
+    doc.update({"id": str(uuid.uuid4()), "created_at": now, "updated_at": now, "usermodif": user.get("email", "")})
+    await db.mandats.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/mandats/{mandat_id}")
+async def update_mandat(mandat_id: str, payload: MandatUpdate, user: dict = Depends(require_role("admin", "editeur"))):
+    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items()}
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    res = await db.mandats.update_one({"id": mandat_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Mandat introuvable")
+    return {"ok": True}
+
+
+@api_router.delete("/mandats/{mandat_id}")
+async def delete_mandat(mandat_id: str, user: dict = Depends(require_role("admin"))):
+    res = await db.mandats.delete_one({"id": mandat_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Mandat introuvable")
+    return {"ok": True}
+
+
+# ---------- Rapports PDF ----------
+def _build_registre97_pdf(date_debut: str, date_fin: str, rows_par_article: dict) -> bytes:
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib import colors
+    from io import BytesIO
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
+    styles = getSampleStyleSheet()
+    h_title = ParagraphStyle("h_title", parent=styles["Heading1"], fontSize=14, alignment=1)
+    h_sub = ParagraphStyle("h_sub", parent=styles["Normal"], fontSize=10, alignment=1, spaceAfter=12)
+    h_section = ParagraphStyle("h_section", parent=styles["Heading2"], fontSize=12, spaceBefore=14, spaceAfter=6, textColor=colors.HexColor("#0033A0"))
+    h_group = ParagraphStyle("h_group", parent=styles["Normal"], fontSize=10, fontName="Helvetica-Bold", spaceBefore=8, spaceAfter=4)
+    n = ParagraphStyle("n", parent=styles["Normal"], fontSize=8)
+    elements = []
+    elements.append(Paragraph("Commission des services juridiques", h_title))
+    elements.append(Paragraph("AIDE JURIDIQUE", h_sub))
+    elements.append(Paragraph(f"<b>Registre tenu en vertu de l'article 97</b><br/>du Règlement sur l'aide juridique L.R.Q. chapitre A-14", n))
+    elements.append(Paragraph(f"Période du {date_debut} au {date_fin}", n))
+    elements.append(Spacer(1, 0.3 * cm))
+    headers = ["Nom avocat", "Nom requérant", "Date ordonnance", "Date émission", "Mandat"]
+    for article in ["486.3", "486.7"]:
+        elements.append(Paragraph(f"Article {article} C.cr.", h_section))
+        rows = rows_par_article.get(article, [])
+        groups = {}
+        for r in rows:
+            groups.setdefault(r.get("groupe", "Pratique Privée"), []).append(r)
+        article_total = 0
+        for grp, items in groups.items():
+            elements.append(Paragraph(f"Avocats {grp}", h_group))
+            data = [headers] + [[r.get("avocat_nom", ""), r.get("requerant", ""), r.get("date_ordonnance", ""), r.get("date_emission", ""), r.get("numero", "")] for r in items]
+            tbl = Table(data, colWidths=[5 * cm, 5 * cm, 3 * cm, 2.5 * cm, 2.5 * cm])
+            tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0033A0")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+            ]))
+            elements.append(tbl)
+            elements.append(Paragraph(f"<i>Sous-total Avocats {grp} : {len(items)}</i>", n))
+            article_total += len(items)
+        elements.append(Paragraph(f"<b>Total Article {article} C.cr. : {article_total}</b>", h_group))
+    doc.build(elements)
+    return buf.getvalue()
+
+
+@api_router.get("/rapports/registre97")
+async def rapport_registre97(date_debut: str, date_fin: str, user: dict = Depends(get_current_user)):
+    rows_par_article = {}
+    cursor = db.mandats.find({"date_ordonnance": {"$gte": date_debut, "$lte": date_fin}}, {"_id": 0})
+    avo_cache = {}
+    for m in await cursor.to_list(length=10000):
+        if m["avocat_id"] not in avo_cache:
+            avo = await db.avocats.find_one({"id": m["avocat_id"]}, {"_id": 0, "nom": 1, "prenom": 1})
+            avo_cache[m["avocat_id"]] = f"{avo['nom']}, {avo['prenom']}" if avo else "—"
+        m["avocat_nom"] = avo_cache[m["avocat_id"]]
+        rows_par_article.setdefault(m.get("article", "486.3"), []).append(m)
+    pdf = _build_registre97_pdf(date_debut, date_fin, rows_par_article)
+    return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="registre97_{date_debut}_{date_fin}.pdf"'})
 
 
 @api_router.get("/")

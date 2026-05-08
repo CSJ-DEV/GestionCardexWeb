@@ -6,6 +6,7 @@ import Layout from "@/components/Layout";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import AvocatsList from "@/pages/AvocatsList";
+import Rapports from "@/pages/Rapports";
 import Utilisateurs from "@/pages/Utilisateurs";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -26,6 +27,7 @@ function App() {
                         >
                             <Route index element={<Dashboard />} />
                             <Route path="avocats" element={<AvocatsList />} />
+                            <Route path="rapports" element={<Rapports />} />
                             <Route path="utilisateurs" element={<Utilisateurs />} />
                         </Route>
                     </Routes>

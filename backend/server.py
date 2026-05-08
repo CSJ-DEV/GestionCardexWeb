@@ -242,6 +242,7 @@ class AvocatUpdate(BaseModel):
     villerref: Optional[str] = None
     surveil: Optional[bool] = None
     neq: Optional[str] = None
+    codeusager: Optional[str] = None
     adresse: Optional[Adresse] = None
 
 

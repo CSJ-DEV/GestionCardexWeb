@@ -1,3 +1,13 @@
+"""GestionCardex API — backend FastAPI + SQLAlchemy + SQLite (CardAvo).
+
+Stack :
+- FastAPI (HTTP) avec routes synchrones (compatibles thread pool).
+- SQLAlchemy 2.0 ORM sur SQLite local (`sqlite_dbs/CardAvo.db`).
+- Compatible SQL Server : il suffit de pointer `DATABASE_URL` vers
+  `mssql+pymssql://...` pour basculer (pas de changement de code).
+
+Ce module remplace l'ancienne implémentation MongoDB/Motor.
+"""
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -5,6 +15,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 import os
+import json
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
@@ -13,17 +24,22 @@ from typing import List, Optional
 import bcrypt
 import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from sqlalchemy import or_, func, and_, desc, asc
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from database import engine, get_db, Base
+from models import (
+    Avocat, Adresse, InfoMega, InfoDistrict, Inhpra,
+    AppUser, AuditLog, Connexion, Mandat,
+    yn_to_bool, bool_to_yn,
+)
 
 
 # ---------- Setup ----------
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
-
 JWT_ALGORITHM = "HS256"
 
 app = FastAPI(title="GestionCardex API")
@@ -46,11 +62,13 @@ def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
 
 
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def create_access_token(user_id: str, email: str) -> str:
     payload = {
-        "sub": user_id,
-        "email": email,
-        "type": "access",
+        "sub": user_id, "email": email, "type": "access",
         "exp": datetime.now(timezone.utc) + timedelta(minutes=60 * 8),
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
@@ -58,8 +76,7 @@ def create_access_token(user_id: str, email: str) -> str:
 
 def create_refresh_token(user_id: str) -> str:
     payload = {
-        "sub": user_id,
-        "type": "refresh",
+        "sub": user_id, "type": "refresh",
         "exp": datetime.now(timezone.utc) + timedelta(days=7),
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
@@ -73,7 +90,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
                         max_age=60 * 60 * 24 * 7, path="/")
 
 
-async def get_current_user(request: Request) -> dict:
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> dict:
     token = request.cookies.get("access_token")
     if not token:
         auth = request.headers.get("Authorization", "")
@@ -85,17 +102,70 @@ async def get_current_user(request: Request) -> dict:
         payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Type de jeton invalide")
-        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
-        if not user:
+        u = db.query(AppUser).filter_by(id=payload["sub"]).first()
+        if not u:
             raise HTTPException(status_code=401, detail="Utilisateur introuvable")
-        return user
+        return {"id": u.id, "email": u.email, "name": u.name, "role": u.role}
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Jeton expiré")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Jeton invalide")
 
 
-# ---------- Models ----------
+# Le rôle TI a tous les droits de l'admin (super-utilisateur technique).
+ADMIN_LIKE = {"admin", "ti"}
+
+
+def require_role(*allowed_roles):
+    expanded = set(allowed_roles)
+    if "admin" in expanded:
+        expanded.add("ti")
+
+    def checker(user: dict = Depends(get_current_user)) -> dict:
+        if user.get("role") not in expanded:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        return user
+    return checker
+
+
+def funcValidNoAssSoc(no: str) -> bool:
+    """Validation Luhn du NAS canadien (port direct du VB legacy)."""
+    if not no:
+        return True
+    no = no.strip()
+    if len(no) != 9 or not no.isdigit():
+        return False
+    tot = 0
+    for i, ch in enumerate(no[:-1], start=1):
+        c = int(ch)
+        if i % 2 == 0:
+            c = c * 2
+            if c > 9:
+                c = (c // 10) + (c % 10)
+        tot += c
+    v = (10 - (tot % 10)) % 10
+    return v == int(no[-1])
+
+
+def _audit(db: Session, avocat_id: str, action: str, user_email: str, summary: str) -> None:
+    """Trace une modification d'avocat dans AuditLog. Best-effort."""
+    try:
+        entry = AuditLog(
+            id=str(uuid.uuid4()),
+            avocat_id=avocat_id,
+            action=action,
+            user_email=user_email or "système",
+            summary=summary,
+            timestamp=now_iso(),
+        )
+        db.add(entry)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"audit_log insert failed: {e}")
+        db.rollback()
+
+
+# ---------- Modèles Pydantic ----------
 class UserOut(BaseModel):
     id: str
     email: EmailStr
@@ -116,74 +186,12 @@ class UserUpdate(BaseModel):
     role: Optional[str] = Field(None, pattern="^(admin|ti|editeur|lecteur)$")
 
 
-# Le rôle TI a tous les droits de l'admin (super-utilisateur technique).
-# Quand un endpoint demande "admin", on autorise aussi "ti" automatiquement.
-ADMIN_LIKE = {"admin", "ti"}
-
-
-def require_role(*allowed_roles):
-    # Auto-promotion : si "admin" est listé, on autorise aussi "ti"
-    expanded = set(allowed_roles)
-    if "admin" in expanded:
-        expanded.add("ti")
-
-    async def checker(user: dict = Depends(get_current_user)) -> dict:
-        if user.get("role") not in expanded:
-            raise HTTPException(status_code=403, detail="Accès refusé")
-        return user
-    return checker
-
-
-def funcValidNoAssSoc(no: str) -> bool:
-    if not no:
-        return True
-    no = no.strip()
-    if len(no) != 9 or not no.isdigit():
-        return False
-    tot = 0
-    for i, ch in enumerate(no[:-1], start=1):
-        c = int(ch)
-        if i % 2 == 0:
-            c = c * 2
-            if c > 9:
-                c = (c // 10) + (c % 10)
-        tot += c
-    v = (10 - (tot % 10)) % 10
-    return v == int(no[-1])
-
-
-async def _audit(avocat_id: str, action: str, user_email: str, summary: str) -> None:
-    """Trace une modification d'avocat (ou entité enfant) dans audit_log.
-    Best-effort : ne fait jamais échouer l'opération principale.
-    Le timestamp est stocké en datetime BSON natif (tri/index plus robuste).
-    """
-    try:
-        await db.audit_log.insert_one({
-            "id": str(uuid.uuid4()),
-            "avocat_id": avocat_id,
-            "action": action,
-            "user_email": user_email or "système",
-            "summary": summary,
-            "timestamp": datetime.now(timezone.utc),
-        })
-    except Exception as e:
-        logger.warning(f"audit_log insert failed: {e}")
-
-
-def _audit_to_out(doc: dict) -> dict:
-    """Sérialise une entrée d'audit pour réponse HTTP (datetime → ISO)."""
-    ts = doc.get("timestamp")
-    if isinstance(ts, datetime):
-        doc["timestamp"] = ts.isoformat()
-    return doc
-
-
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
 
 
-class Adresse(BaseModel):
+class AdresseModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
     address: Optional[str] = ""
     adresse2: Optional[str] = ""
@@ -199,10 +207,8 @@ class Adresse(BaseModel):
 
 class AvocatBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    # Code optionnel : il est généré côté serveur lors de la création
-    # (format <type><5 chiffres>, ex A00001) et obligatoire en mise à jour.
     code: Optional[str] = Field(None, max_length=10)
-    type_code: str = Field("A", description="A=Avocat permanent, P=Avocat privé, N=Notaire")
+    type_code: str = Field("A")
     nom: str = Field(..., min_length=1, max_length=80)
     prenom: str = Field(..., min_length=1, max_length=80)
     sectbar: Optional[str] = ""
@@ -223,7 +229,7 @@ class AvocatBase(BaseModel):
     surveil: bool = False
     neq: Optional[str] = ""
     codeusager: Optional[str] = ""
-    adresse: Adresse = Field(default_factory=Adresse)
+    adresse: AdresseModel = Field(default_factory=AdresseModel)
 
 
 class AvocatCreate(AvocatBase):
@@ -253,7 +259,7 @@ class AvocatUpdate(BaseModel):
     surveil: Optional[bool] = None
     neq: Optional[str] = None
     codeusager: Optional[str] = None
-    adresse: Optional[Adresse] = None
+    adresse: Optional[AdresseModel] = None
 
 
 class AvocatOut(AvocatBase):
@@ -278,31 +284,123 @@ class StatsOut(BaseModel):
     nouveaux_30j: int
 
 
+# ---------- Sérialisation ORM → Pydantic ----------
+def avocat_to_dict(a: Avocat) -> dict:
+    """Convertit un ORM Avocat → dict prêt pour AvocatOut."""
+    adr_data = {}
+    if a.adresse_courante:
+        try:
+            adr_data = json.loads(a.adresse_courante)
+        except (json.JSONDecodeError, TypeError):
+            adr_data = {}
+    return {
+        "id": a.id or "",
+        "code": a.code or "",
+        "type_code": a.type_code or "A",
+        "nom": a.nom or "",
+        "prenom": a.prenom or "",
+        "sectbar": a.sectbar or "",
+        "mega": yn_to_bool(a.mega),
+        "actif": bool(a.actif) if a.actif is not None else True,
+        "attente": bool(a.attente) if a.attente is not None else False,
+        "annee_barreau": a.annee_barreau or "",
+        "dateinscbarr": a.dateinscbarr or "",
+        "payable": yn_to_bool(a.payable),
+        "codebar": a.codebar or "",
+        "comm": a.comm or "",
+        "nas": a.nas or "",
+        "taxes": a.taxes or "",
+        "depodirect": yn_to_bool(a.depodirect),
+        "factweb": yn_to_bool(a.factweb),
+        "confweb": yn_to_bool(a.confweb),
+        "villerref": a.villerref or a.villeref or "",
+        "surveil": yn_to_bool(a.surveil),
+        "neq": a.neq or "",
+        "codeusager": a.codeusager or "",
+        "adresse": adr_data or {},
+        "created_at": a.created_at or "",
+        "updated_at": a.updated_at or "",
+        "usermodif": a.usermodif or "",
+    }
+
+
+def adresse_to_dict(adr: Adresse) -> dict:
+    return {
+        "id": adr.id,
+        "avocat_id": adr.avocat_id or "",
+        "address": adr.address or "",
+        "adresse2": adr.adresse2 or "",
+        "adresse3": adr.adresse3 or "",
+        "ville": adr.ville or "",
+        "province": adr.province or "",
+        "codepostal": adr.codepostal or "",
+        "telephone": adr.telephone or "",
+        "telephone2": adr.telephone2 or "",
+        "fax": adr.fax or "",
+        "email": adr.email or adr.adremail or "",
+        "courant": yn_to_bool(adr.courant),
+        "created_at": adr.created_at or "",
+        "updated_at": adr.updated_at or "",
+    }
+
+
+def mega_to_dict(m: InfoMega, districts: list[int]) -> dict:
+    return {
+        "id": m.id,
+        "avocat_id": m.avocat_id or "",
+        "sectbar": m.sectbar or "",
+        "districthab": m.districthab or "",
+        "francais": yn_to_bool(m.francais),
+        "anglais": yn_to_bool(m.anglais),
+        "autres": m.autres or "",
+        "experience": m.experience or 0,
+        "details": m.details or "",
+        "art486": yn_to_bool(m.art486),
+        "art672": yn_to_bool(m.art672),
+        "art684": yn_to_bool(m.art684),
+        "commentaire": m.commentaire or "",
+        "dateinsc": m.dateinsc or "",
+        "districts": districts,
+        "tous_districts": bool(m.tous_districts),
+        "updated_at": m.updated_at or "",
+        "usermodif": m.usermodif or "",
+    }
+
+
+def inhab_to_dict(i: Inhpra) -> dict:
+    return {
+        "id": i.uuid or str(i.Id),
+        "avocat_id": i.avocat_id or "",
+        "datedeb": i.datedeb or "",
+        "datefin": i.datefin or "",
+        "comm": i.comm or "",
+        "created_at": i.created_at or "",
+        "updated_at": i.updated_at or "",
+    }
+
+
 # ---------- Auth Endpoints ----------
 @api_router.post("/auth/login", response_model=UserOut)
-async def login(payload: LoginIn, response: Response):
+def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
     email = payload.email.lower()
-    user = await db.users.find_one({"email": email}, {"_id": 0})
-    if not user or not verify_password(payload.password, user["password_hash"]):
+    u = db.query(AppUser).filter_by(email=email).first()
+    if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Identifiants invalides")
-    access = create_access_token(user["id"], user["email"])
-    refresh = create_refresh_token(user["id"])
+    access = create_access_token(u.id, u.email)
+    refresh = create_refresh_token(u.id)
     set_auth_cookies(response, access, refresh)
-    return UserOut(id=user["id"], email=user["email"], name=user.get("name", ""), role=user.get("role", "admin"))
+    return UserOut(id=u.id, email=u.email, name=u.name or "", role=u.role or "admin")
 
 
 @api_router.post("/auth/logout")
-async def logout(response: Response):
+def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
     return {"ok": True}
 
 
 @api_router.post("/auth/refresh", response_model=UserOut)
-async def refresh_token_endpoint(request: Request, response: Response):
-    """Re-émet un access_token (et rotate le refresh_token) à partir du refresh cookie.
-    Utilisé par l'intercepteur frontend pour gérer l'expiration silencieuse du JWT.
-    """
+def refresh_token_endpoint(request: Request, response: Response, db: Session = Depends(get_db)):
     token = request.cookies.get("refresh_token")
     if not token:
         raise HTTPException(status_code=401, detail="Aucun jeton de rafraîchissement")
@@ -314,381 +412,453 @@ async def refresh_token_endpoint(request: Request, response: Response):
         raise HTTPException(status_code=401, detail="Session expirée — veuillez vous reconnecter")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Jeton invalide")
-    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
-    if not user:
+    u = db.query(AppUser).filter_by(id=payload["sub"]).first()
+    if not u:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
-    new_access = create_access_token(user["id"], user["email"])
-    new_refresh = create_refresh_token(user["id"])
-    set_auth_cookies(response, new_access, new_refresh)
-    return UserOut(id=user["id"], email=user["email"], name=user.get("name", ""), role=user.get("role", "admin"))
+    set_auth_cookies(response, create_access_token(u.id, u.email), create_refresh_token(u.id))
+    return UserOut(id=u.id, email=u.email, name=u.name or "", role=u.role or "admin")
 
 
 @api_router.get("/auth/me", response_model=UserOut)
-async def me(user: dict = Depends(get_current_user)):
-    return UserOut(id=user["id"], email=user["email"], name=user.get("name", ""), role=user.get("role", "admin"))
+def me(user: dict = Depends(get_current_user)):
+    return UserOut(id=user["id"], email=user["email"], name=user.get("name") or "", role=user.get("role") or "admin")
 
 
 # ---------- Avocats Endpoints ----------
-def _avocat_to_out(doc: dict) -> AvocatOut:
-    doc.pop("_id", None)
-    return AvocatOut(**doc)
-
-
 @api_router.get("/avocats", response_model=AvocatsListOut)
-async def list_avocats(
+def list_avocats(
     user: dict = Depends(get_current_user),
-    q: Optional[str] = Query(None, description="Recherche code/nom/prénom"),
-    statut: Optional[str] = Query(None, description="actif|inactif|all"),
+    db: Session = Depends(get_db),
+    q: Optional[str] = Query(None),
+    statut: Optional[str] = Query(None),
     mega: Optional[bool] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
 ):
-    query: dict = {}
+    query = db.query(Avocat).filter(Avocat.id.isnot(None))
     if q:
-        regex = {"$regex": q, "$options": "i"}
-        query["$or"] = [{"code": regex}, {"nom": regex}, {"prenom": regex}]
+        like = f"%{q}%"
+        query = query.filter(or_(Avocat.code.ilike(like), Avocat.nom.ilike(like), Avocat.prenom.ilike(like)))
     if statut == "actif":
-        query["actif"] = True
+        query = query.filter(Avocat.actif.is_(True))
     elif statut == "inactif":
-        query["actif"] = False
+        query = query.filter(Avocat.actif.is_(False))
     if mega is not None:
-        query["mega"] = mega
-
-    total = await db.avocats.count_documents(query)
-    cursor = db.avocats.find(query, {"_id": 0}).sort([("nom", 1), ("prenom", 1)]).skip((page - 1) * page_size).limit(page_size)
-    items = [_avocat_to_out(doc) for doc in await cursor.to_list(length=page_size)]
+        query = query.filter(Avocat.mega == ("O" if mega else "N"))
+    total = query.count()
+    rows = (query.order_by(asc(Avocat.nom), asc(Avocat.prenom))
+                 .offset((page - 1) * page_size).limit(page_size).all())
+    items = [AvocatOut(**avocat_to_dict(a)) for a in rows]
     return AvocatsListOut(items=items, total=total, page=page, page_size=page_size)
 
 
-@api_router.get("/avocats/next-code")
-async def next_avocat_code(
-    type: str = Query("A", pattern="^[ANP]$"),
-    user: dict = Depends(get_current_user),
-):
-    """Aperçu du prochain code séquentiel selon le type (A/N/P).
-    NOTE : valeur indicative seulement — le code réel est attribué au moment
-    de la sauvegarde via _generate_avocat_code() pour éviter les collisions
-    si plusieurs créations sont en cours simultanément.
-    """
-    code = await _generate_avocat_code(type)
-    return {"code": code}
-
-
-async def _generate_avocat_code(type_code: str) -> str:
-    """Génère le prochain code séquentiel basé sur le plus grand code existant
-    pour ce type. Format : <type_code><5 chiffres> (ex. A00001, P00042).
-    """
+def _generate_avocat_code(db: Session, type_code: str) -> str:
+    """Calcule le prochain code séquentiel (format <type><5 chiffres>)."""
     type_code = (type_code or "A").upper()
-    cursor = db.avocats.find(
-        {"code": {"$regex": f"^{type_code}\\d+$"}},
-        {"_id": 0, "code": 1},
-    ).sort("code", -1).limit(1)
-    docs = await cursor.to_list(length=1)
+    rows = (db.query(Avocat.code)
+              .filter(Avocat.code.like(f"{type_code}%"))
+              .order_by(desc(Avocat.code)).limit(50).all())
     next_num = 1
-    if docs:
+    for (c,) in rows:
         try:
-            next_num = int(docs[0]["code"][1:]) + 1
-        except (ValueError, IndexError):
-            next_num = 1
+            n = int(c[1:])
+            if n >= next_num:
+                next_num = n + 1
+        except (ValueError, TypeError):
+            continue
     return f"{type_code}{next_num:05d}"
 
 
+@api_router.get("/avocats/next-code")
+def next_avocat_code(
+    type: str = Query("A", pattern="^[ANP]$"),
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return {"code": _generate_avocat_code(db, type)}
+
+
 @api_router.get("/avocats/stats", response_model=StatsOut)
-async def avocats_stats(user: dict = Depends(get_current_user)):
-    total = await db.avocats.count_documents({})
-    actifs = await db.avocats.count_documents({"actif": True})
-    inactifs = await db.avocats.count_documents({"actif": False})
-    mega = await db.avocats.count_documents({"mega": True})
+def avocats_stats(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    base = db.query(Avocat).filter(Avocat.id.isnot(None))
+    total = base.count()
+    actifs = base.filter(Avocat.actif.is_(True)).count()
+    inactifs = base.filter(Avocat.actif.is_(False)).count()
+    mega = base.filter(Avocat.mega == "O").count()
     cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-    nouveaux = await db.avocats.count_documents({"created_at": {"$gte": cutoff}})
+    nouveaux = base.filter(Avocat.created_at >= cutoff).count()
     return StatsOut(total=total, actifs=actifs, inactifs=inactifs, mega=mega, nouveaux_30j=nouveaux)
 
 
 @api_router.get("/avocats/{avocat_id}", response_model=AvocatOut)
-async def get_avocat(avocat_id: str, user: dict = Depends(get_current_user)):
-    doc = await db.avocats.find_one({"id": avocat_id}, {"_id": 0})
-    if not doc:
+def get_avocat(avocat_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    a = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not a:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    return _avocat_to_out(doc)
+    return AvocatOut(**avocat_to_dict(a))
 
 
 @api_router.post("/avocats", response_model=AvocatOut, status_code=201)
-async def create_avocat(payload: AvocatCreate, user: dict = Depends(require_role("admin", "editeur"))):
+def create_avocat(payload: AvocatCreate, user: dict = Depends(require_role("admin", "editeur")),
+                  db: Session = Depends(get_db)):
     if payload.nas and not funcValidNoAssSoc(payload.nas):
         raise HTTPException(status_code=422, detail="Numéro NAS invalide (algorithme Luhn)")
     type_code = (payload.type_code or "A").upper()
     if type_code not in {"A", "N", "P"}:
         raise HTTPException(status_code=422, detail="type_code invalide (A/N/P)")
-    now = datetime.now(timezone.utc).isoformat()
-    base_doc = payload.model_dump()
-    base_doc.pop("code", None)  # le code reçu côté frontend est ignoré
-    base_doc.update({
-        "type_code": type_code,
-        "created_at": now,
-        "updated_at": now,
-        "usermodif": user.get("email", ""),
-    })
-    # Retry court sur DuplicateKeyError pour gérer les créations concurrentes
-    from pymongo.errors import DuplicateKeyError
+
+    new_id = str(uuid.uuid4())
+    now = now_iso()
+    adr_json = json.dumps(payload.adresse.model_dump()) if payload.adresse else "{}"
+
+    # Retry sur conflit d'unicité du code
     last_err: Optional[Exception] = None
     for _ in range(5):
-        code = await _generate_avocat_code(type_code)
-        doc = {**base_doc, "code": code, "id": str(uuid.uuid4())}
+        code = _generate_avocat_code(db, type_code)
+        a = Avocat(
+            code=code, id=new_id, type_code=type_code,
+            nom=payload.nom, prenom=payload.prenom,
+            sectbar=payload.sectbar or "",
+            mega=bool_to_yn(payload.mega), actpass="A" if payload.actif else "P",
+            actif=payload.actif, attente=payload.attente,
+            annee_barreau=payload.annee_barreau or "",
+            dateinscbarr=payload.dateinscbarr or "",
+            payable=bool_to_yn(payload.payable),
+            codebar=payload.codebar or "", comm=payload.comm or "",
+            nas=payload.nas or "", taxes=payload.taxes or "",
+            depodirect=bool_to_yn(payload.depodirect),
+            factweb=bool_to_yn(payload.factweb),
+            confweb=bool_to_yn(payload.confweb),
+            villerref=payload.villerref or "", villeref=payload.villerref or "",
+            surveil=bool_to_yn(payload.surveil),
+            neq=payload.neq or "", codeusager=payload.codeusager or "",
+            adresse_courante=adr_json,
+            created_at=now, updated_at=now,
+            usermodif=user.get("email", ""),
+        )
         try:
-            await db.avocats.insert_one(doc.copy())
-            doc.pop("_id", None)
-            await _audit(doc["id"], "create", user.get("email", ""),
-                         f"Création de la fiche {code} — {doc.get('nom','')}, {doc.get('prenom','')}")
-            return AvocatOut(**doc)
-        except DuplicateKeyError as e:
+            db.add(a)
+            db.commit()
+            db.refresh(a)
+            _audit(db, new_id, "create", user.get("email", ""),
+                   f"Création de la fiche {code} — {payload.nom}, {payload.prenom}")
+            return AvocatOut(**avocat_to_dict(a))
+        except IntegrityError as e:
+            db.rollback()
             last_err = e
             continue
-    logger.error(f"Avocat code generation failed after retries: {last_err}")
+    logger.error(f"Avocat code generation failed: {last_err}")
     raise HTTPException(status_code=500, detail="Impossible de générer un code unique. Réessayez.")
 
 
 @api_router.put("/avocats/{avocat_id}", response_model=AvocatOut)
-async def update_avocat(avocat_id: str, payload: AvocatUpdate, user: dict = Depends(require_role("admin", "editeur"))):
-    update_doc = {k: (v.model_dump() if hasattr(v, "model_dump") else v)
-                  for k, v in payload.model_dump(exclude_unset=True).items()}
-    if not update_doc:
-        raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
-    update_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
-    update_doc["usermodif"] = user.get("email", "")
-    res = await db.avocats.update_one({"id": avocat_id}, {"$set": update_doc})
-    if res.matched_count == 0:
+def update_avocat(avocat_id: str, payload: AvocatUpdate,
+                  user: dict = Depends(require_role("admin", "editeur")),
+                  db: Session = Depends(get_db)):
+    a = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not a:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    doc = await db.avocats.find_one({"id": avocat_id}, {"_id": 0})
-    # Résumé : champs modifiés (hors méta)
-    changed = sorted(k for k in update_doc.keys() if k not in {"updated_at", "usermodif"})
+
+    data = payload.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+
+    yn_fields = {"mega", "payable", "depodirect", "factweb", "confweb", "surveil"}
+    bool_fields = {"actif", "attente"}
+
+    changed = []
+    for k, v in data.items():
+        if k == "adresse" and v is not None:
+            a.adresse_courante = json.dumps(v if isinstance(v, dict) else v.model_dump())
+            changed.append("adresse")
+        elif k in yn_fields:
+            setattr(a, k, bool_to_yn(v))
+            changed.append(k)
+        elif k in bool_fields:
+            setattr(a, k, bool(v))
+            if k == "actif":
+                a.actpass = "A" if v else "P"
+            changed.append(k)
+        elif k == "villerref":
+            a.villerref = v or ""
+            a.villeref = v or ""  # garde la colonne legacy synchronisée
+            changed.append(k)
+        else:
+            setattr(a, k, v)
+            changed.append(k)
+
+    a.updated_at = now_iso()
+    a.usermodif = user.get("email", "")
+    db.commit()
+    db.refresh(a)
     if changed:
-        await _audit(avocat_id, "update", user.get("email", ""),
-                     f"Modification : {', '.join(changed)}")
-    return _avocat_to_out(doc)
+        _audit(db, avocat_id, "update", user.get("email", ""),
+               f"Modification : {', '.join(sorted(changed))}")
+    return AvocatOut(**avocat_to_dict(a))
 
 
 @api_router.delete("/avocats/{avocat_id}")
-async def delete_avocat(avocat_id: str, user: dict = Depends(require_role("admin"))):
-    avo = await db.avocats.find_one({"id": avocat_id}, {"_id": 0, "code": 1, "nom": 1, "prenom": 1})
-    await db.avocat_adresses.delete_many({"avocat_id": avocat_id})
-    await db.avocat_mega.delete_one({"avocat_id": avocat_id})
-    await db.avocat_inhab.delete_many({"avocat_id": avocat_id})
-    res = await db.avocats.delete_one({"id": avocat_id})
-    if res.deleted_count == 0:
+def delete_avocat(avocat_id: str, user: dict = Depends(require_role("admin")),
+                  db: Session = Depends(get_db)):
+    a = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not a:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    summary = f"Suppression de {avo.get('code','')} — {avo.get('nom','')}, {avo.get('prenom','')}" if avo else "Suppression"
-    await _audit(avocat_id, "delete", user.get("email", ""), summary)
+    summary = f"Suppression de {a.code or ''} — {a.nom}, {a.prenom}"
+    code = a.code
+    db.query(Adresse).filter_by(avocat_id=avocat_id).delete()
+    db.query(InfoMega).filter_by(avocat_id=avocat_id).delete()
+    db.query(Inhpra).filter_by(avocat_id=avocat_id).delete()
+    if code:
+        db.query(InfoDistrict).filter_by(code=code).delete()
+    db.delete(a)
+    db.commit()
+    _audit(db, avocat_id, "delete", user.get("email", ""), summary)
     return {"ok": True}
 
 
+# ---------- Adresses ----------
 @api_router.get("/avocats/{avocat_id}/adresses")
-async def list_adresses(avocat_id: str, user: dict = Depends(get_current_user)):
-    docs = await db.avocat_adresses.find({"avocat_id": avocat_id}, {"_id": 0}).sort("created_at", -1).to_list(length=200)
-    return docs
+def list_adresses(avocat_id: str, user: dict = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    rows = (db.query(Adresse).filter_by(avocat_id=avocat_id)
+              .order_by(desc(Adresse.created_at)).limit(200).all())
+    return [adresse_to_dict(a) for a in rows]
 
 
 @api_router.post("/avocats/{avocat_id}/adresses", status_code=201)
-async def create_adresse(avocat_id: str, payload: Adresse, courant: bool = False, user: dict = Depends(require_role("admin", "editeur"))):
-    avo = await db.avocats.find_one({"id": avocat_id})
+def create_adresse(avocat_id: str, payload: AdresseModel, courant: bool = False,
+                   user: dict = Depends(require_role("admin", "editeur")),
+                   db: Session = Depends(get_db)):
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = datetime.now(timezone.utc).isoformat()
-    doc = payload.model_dump()
-    doc.update({"id": str(uuid.uuid4()), "avocat_id": avocat_id, "courant": courant, "created_at": now, "updated_at": now})
+    now = now_iso()
+    new_id = str(uuid.uuid4())
     if courant:
-        await db.avocat_adresses.update_many({"avocat_id": avocat_id}, {"$set": {"courant": False}})
-        await db.avocats.update_one({"id": avocat_id}, {"$set": {"adresse": payload.model_dump(), "updated_at": now}})
-    await db.avocat_adresses.insert_one(doc.copy())
-    doc.pop("_id", None)
-    await _audit(avocat_id, "adresse_create", user.get("email", ""),
-                 f"Adresse ajoutée : {payload.address or '?'}, {payload.ville or ''}".strip(", "))
-    return doc
+        # désactive les autres
+        db.query(Adresse).filter_by(avocat_id=avocat_id).update({"courant": "N"})
+        avo.adresse_courante = json.dumps(payload.model_dump())
+        avo.updated_at = now
+    adr = Adresse(
+        id=new_id, RowId=new_id, avocat_id=avocat_id, code=avo.code,
+        address=payload.address or "", adresse2=payload.adresse2 or "",
+        adresse3=payload.adresse3 or "", ville=payload.ville or "",
+        province=payload.province or "", codepostal=payload.codepostal or "",
+        telephone=payload.telephone or "", telephone2=payload.telephone2 or "",
+        fax=payload.fax or "", email=payload.email or "", adremail=payload.email or "",
+        courant=bool_to_yn(courant),
+        created_at=now, updated_at=now,
+    )
+    db.add(adr)
+    db.commit()
+    db.refresh(adr)
+    _audit(db, avocat_id, "adresse_create", user.get("email", ""),
+           f"Adresse ajoutée : {payload.address or '?'}, {payload.ville or ''}".strip(", "))
+    return adresse_to_dict(adr)
 
 
 @api_router.put("/avocats/{avocat_id}/adresses/{adresse_id}")
-async def update_adresse(avocat_id: str, adresse_id: str, payload: Adresse, courant: bool = False, user: dict = Depends(require_role("admin", "editeur"))):
-    now = datetime.now(timezone.utc).isoformat()
-    update = payload.model_dump()
-    update.update({"courant": courant, "updated_at": now})
-    if courant:
-        await db.avocat_adresses.update_many({"avocat_id": avocat_id}, {"$set": {"courant": False}})
-        await db.avocats.update_one({"id": avocat_id}, {"$set": {"adresse": payload.model_dump(), "updated_at": now}})
-    res = await db.avocat_adresses.update_one({"id": adresse_id, "avocat_id": avocat_id}, {"$set": update})
-    if res.matched_count == 0:
+def update_adresse(avocat_id: str, adresse_id: str, payload: AdresseModel, courant: bool = False,
+                   user: dict = Depends(require_role("admin", "editeur")),
+                   db: Session = Depends(get_db)):
+    adr = db.query(Adresse).filter_by(id=adresse_id, avocat_id=avocat_id).first()
+    if not adr:
         raise HTTPException(status_code=404, detail="Adresse introuvable")
-    await _audit(avocat_id, "adresse_update", user.get("email", ""),
-                 f"Adresse modifiée : {payload.address or '?'}, {payload.ville or ''}".strip(", "))
+    now = now_iso()
+    for f in ("address", "adresse2", "adresse3", "ville", "province", "codepostal",
+              "telephone", "telephone2", "fax", "email"):
+        setattr(adr, f, getattr(payload, f) or "")
+    adr.adremail = payload.email or ""
+    adr.courant = bool_to_yn(courant)
+    adr.updated_at = now
+    if courant:
+        # désactive les autres
+        (db.query(Adresse).filter(Adresse.avocat_id == avocat_id, Adresse.id != adresse_id)
+           .update({"courant": "N"}))
+        avo = db.query(Avocat).filter_by(id=avocat_id).first()
+        if avo:
+            avo.adresse_courante = json.dumps(payload.model_dump())
+            avo.updated_at = now
+    db.commit()
+    _audit(db, avocat_id, "adresse_update", user.get("email", ""),
+           f"Adresse modifiée : {payload.address or '?'}, {payload.ville or ''}".strip(", "))
     return {"ok": True}
 
 
 @api_router.delete("/avocats/{avocat_id}/adresses/{adresse_id}")
-async def delete_adresse(avocat_id: str, adresse_id: str, user: dict = Depends(require_role("admin", "editeur"))):
-    adr = await db.avocat_adresses.find_one({"id": adresse_id, "avocat_id": avocat_id}, {"_id": 0})
-    res = await db.avocat_adresses.delete_one({"id": adresse_id, "avocat_id": avocat_id})
-    if res.deleted_count == 0:
+def delete_adresse(avocat_id: str, adresse_id: str,
+                   user: dict = Depends(require_role("admin", "editeur")),
+                   db: Session = Depends(get_db)):
+    adr = db.query(Adresse).filter_by(id=adresse_id, avocat_id=avocat_id).first()
+    if not adr:
         raise HTTPException(status_code=404, detail="Adresse introuvable")
-    label = f"{(adr or {}).get('address','?')}, {(adr or {}).get('ville','')}" if adr else "—"
-    await _audit(avocat_id, "adresse_delete", user.get("email", ""),
-                 f"Adresse supprimée : {label}".strip(", "))
+    label = f"{adr.address or '?'}, {adr.ville or ''}"
+    db.delete(adr)
+    db.commit()
+    _audit(db, avocat_id, "adresse_delete", user.get("email", ""),
+           f"Adresse supprimée : {label}".strip(", "))
     return {"ok": True}
 
 
-# ---------- Users CRUD (admin only) ----------
+# ---------- Users CRUD ----------
 @api_router.get("/users")
-async def list_users(user: dict = Depends(require_role("admin"))):
-    docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(length=500)
-    return docs
+def list_users(user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    rows = db.query(AppUser).limit(500).all()
+    return [{"id": u.id, "email": u.email, "name": u.name or "", "role": u.role,
+             "created_at": u.created_at} for u in rows]
 
 
 @api_router.post("/users", status_code=201)
-async def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))):
+def create_user(payload: UserCreate, user: dict = Depends(require_role("admin")),
+                db: Session = Depends(get_db)):
     email = payload.email.lower()
-    if await db.users.find_one({"email": email}):
+    if db.query(AppUser).filter_by(email=email).first():
         raise HTTPException(status_code=409, detail="Courriel déjà utilisé")
-    doc = {
-        "id": str(uuid.uuid4()),
-        "email": email,
-        "name": payload.name,
-        "role": payload.role,
-        "password_hash": hash_password(payload.password),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.users.insert_one(doc.copy())
-    return {"id": doc["id"], "email": email, "name": payload.name, "role": payload.role}
+    u = AppUser(id=str(uuid.uuid4()), email=email, name=payload.name, role=payload.role,
+                password_hash=hash_password(payload.password), created_at=now_iso())
+    db.add(u)
+    db.commit()
+    return {"id": u.id, "email": email, "name": payload.name, "role": payload.role}
 
 
 @api_router.put("/users/{user_id}")
-async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(require_role("admin"))):
-    update = {}
-    if payload.name is not None:
-        update["name"] = payload.name
-    if payload.role is not None:
-        update["role"] = payload.role
-    if payload.password:
-        update["password_hash"] = hash_password(payload.password)
-    if not update:
-        raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
-    res = await db.users.update_one({"id": user_id}, {"$set": update})
-    if res.matched_count == 0:
+def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(require_role("admin")),
+                db: Session = Depends(get_db)):
+    u = db.query(AppUser).filter_by(id=user_id).first()
+    if not u:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if payload.name is not None:
+        u.name = payload.name
+    if payload.role is not None:
+        u.role = payload.role
+    if payload.password:
+        u.password_hash = hash_password(payload.password)
+    db.commit()
     return {"ok": True}
 
 
 @api_router.delete("/users/{user_id}")
-async def delete_user(user_id: str, user: dict = Depends(require_role("admin"))):
+def delete_user(user_id: str, user: dict = Depends(require_role("admin")),
+                db: Session = Depends(get_db)):
     if user_id == user["id"]:
         raise HTTPException(status_code=400, detail="Impossible de supprimer son propre compte")
-    res = await db.users.delete_one({"id": user_id})
-    if res.deleted_count == 0:
+    u = db.query(AppUser).filter_by(id=user_id).first()
+    if not u:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    db.delete(u)
+    db.commit()
     return {"ok": True}
 
 
 # ---------- Connexions (admin + ti) ----------
 from connexions import (  # noqa: E402
-    ConnexionCreate, ConnexionUpdate, _to_out,
+    ConnexionCreate, ConnexionUpdate, ConnexionOut,
     encrypt_password, decrypt_password, test_connection,
 )
 
 
+def _conn_to_out(c: Connexion) -> dict:
+    return ConnexionOut(
+        id=c.id, name=c.name, type=c.type, server=c.server, port=c.port,
+        database=c.database or "", user=c.user or "", description=c.description or "",
+        has_password=bool(c.password_enc), is_primary=bool(c.is_primary),
+        created_at=c.created_at or "", updated_at=c.updated_at or "",
+    ).model_dump()
+
+
 @api_router.get("/connexions")
-async def list_connexions(user: dict = Depends(require_role("admin"))):
-    docs = await db.connexions.find({}, {"_id": 0}).sort("name", 1).to_list(length=200)
-    return [_to_out(d).model_dump() for d in docs]
+def list_connexions(user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    rows = db.query(Connexion).order_by(asc(Connexion.name)).all()
+    return [_conn_to_out(c) for c in rows]
 
 
 @api_router.get("/connexions/{conn_id}")
-async def get_connexion(conn_id: str, user: dict = Depends(require_role("admin"))):
-    doc = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
-    if not doc:
+def get_connexion(conn_id: str, user: dict = Depends(require_role("admin")),
+                  db: Session = Depends(get_db)):
+    c = db.query(Connexion).filter_by(id=conn_id).first()
+    if not c:
         raise HTTPException(status_code=404, detail="Connexion introuvable")
-    return _to_out(doc).model_dump()
+    return _conn_to_out(c)
 
 
 @api_router.post("/connexions", status_code=201)
-async def create_connexion(payload: ConnexionCreate, user: dict = Depends(require_role("admin"))):
-    now = datetime.now(timezone.utc).isoformat()
-    doc = payload.model_dump()
-    pwd = doc.pop("password", "") or ""
-    doc.update({
-        "id": str(uuid.uuid4()),
-        "password_enc": encrypt_password(pwd) if pwd else "",
-        "is_primary": False,
-        "created_at": now,
-        "updated_at": now,
-    })
-    await db.connexions.insert_one(doc.copy())
-    doc.pop("_id", None)
-    return _to_out(doc).model_dump()
+def create_connexion(payload: ConnexionCreate, user: dict = Depends(require_role("admin")),
+                     db: Session = Depends(get_db)):
+    now = now_iso()
+    pwd = (payload.password or "").strip()
+    c = Connexion(
+        id=str(uuid.uuid4()), name=payload.name, type=payload.type, server=payload.server,
+        port=payload.port, user=payload.user or "", database=payload.database or "",
+        description=payload.description or "",
+        password_enc=encrypt_password(pwd) if pwd else "",
+        is_primary=False, created_at=now, updated_at=now,
+    )
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return _conn_to_out(c)
 
 
 @api_router.put("/connexions/{conn_id}")
-async def update_connexion(conn_id: str, payload: ConnexionUpdate, user: dict = Depends(require_role("admin"))):
-    existing = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
-    if not existing:
+def update_connexion(conn_id: str, payload: ConnexionUpdate,
+                     user: dict = Depends(require_role("admin")),
+                     db: Session = Depends(get_db)):
+    c = db.query(Connexion).filter_by(id=conn_id).first()
+    if not c:
         raise HTTPException(status_code=404, detail="Connexion introuvable")
     update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
-    # Protection : on n'écrase jamais la connexion primaire (lecture seule)
-    if existing.get("is_primary"):
-        # On autorise uniquement la mise à jour de la description sur la primaire
+    if c.is_primary:
         update = {k: v for k, v in update.items() if k == "description"}
         if not update:
             raise HTTPException(status_code=403, detail="La connexion principale est en lecture seule (sauf description)")
     pwd = update.pop("password", None)
-    if pwd:  # nouveau mot de passe non vide → on chiffre
-        update["password_enc"] = encrypt_password(pwd)
-    update["updated_at"] = datetime.now(timezone.utc).isoformat()
-    await db.connexions.update_one({"id": conn_id}, {"$set": update})
-    doc = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
-    return _to_out(doc).model_dump()
+    if pwd:
+        c.password_enc = encrypt_password(pwd)
+    for k, v in update.items():
+        setattr(c, k, v)
+    c.updated_at = now_iso()
+    db.commit()
+    db.refresh(c)
+    return _conn_to_out(c)
 
 
 @api_router.delete("/connexions/{conn_id}")
-async def delete_connexion(conn_id: str, user: dict = Depends(require_role("admin"))):
-    existing = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
-    if not existing:
+def delete_connexion(conn_id: str, user: dict = Depends(require_role("admin")),
+                     db: Session = Depends(get_db)):
+    c = db.query(Connexion).filter_by(id=conn_id).first()
+    if not c:
         raise HTTPException(status_code=404, detail="Connexion introuvable")
-    if existing.get("is_primary"):
+    if c.is_primary:
         raise HTTPException(status_code=403, detail="La connexion principale ne peut pas être supprimée")
-    await db.connexions.delete_one({"id": conn_id})
+    db.delete(c)
+    db.commit()
     return {"ok": True}
 
 
 @api_router.get("/connexions/{conn_id}/download")
-async def download_sqlite_file(conn_id: str, user: dict = Depends(require_role("admin"))):
-    """Télécharge le fichier SQLite associé à une connexion (type=sqlite)."""
-    from fastapi.responses import FileResponse
-    doc = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
-    if not doc:
+def download_sqlite_file(conn_id: str, user: dict = Depends(require_role("admin")),
+                        db: Session = Depends(get_db)):
+    c = db.query(Connexion).filter_by(id=conn_id).first()
+    if not c:
         raise HTTPException(status_code=404, detail="Connexion introuvable")
-    if doc.get("type") != "sqlite":
+    if c.type != "sqlite":
         raise HTTPException(status_code=400, detail="Téléchargement réservé aux connexions SQLite")
-    file_rel = doc.get("database") or ""
+    file_rel = c.database or ""
     file_path = ROOT_DIR / file_rel
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail=f"Fichier introuvable : {file_rel}")
-    return FileResponse(
-        path=str(file_path),
-        media_type="application/x-sqlite3",
-        filename=file_path.name,
-    )
+    return FileResponse(path=str(file_path), media_type="application/x-sqlite3", filename=file_path.name)
 
 
 @api_router.post("/connexions/{conn_id}/test")
-async def test_existing_connexion(conn_id: str, user: dict = Depends(require_role("admin"))):
-    """Teste une connexion stockée (utilise le mot de passe déchiffré)."""
-    doc = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
-    if not doc:
+def test_existing_connexion(conn_id: str, user: dict = Depends(require_role("admin")),
+                            db: Session = Depends(get_db)):
+    c = db.query(Connexion).filter_by(id=conn_id).first()
+    if not c:
         raise HTTPException(status_code=404, detail="Connexion introuvable")
-    pwd = decrypt_password(doc.get("password_enc", ""))
-    return test_connection(
-        c_type=doc.get("type"),
-        server=doc.get("server", ""),
-        port=doc.get("port"),
-        user=doc.get("user", ""),
-        password=pwd,
-        database=doc.get("database", ""),
-    )
+    pwd = decrypt_password(c.password_enc or "")
+    return test_connection(c_type=c.type, server=c.server, port=c.port,
+                           user=c.user or "", password=pwd, database=c.database or "")
 
 
 class ConnexionTestPayload(BaseModel):
@@ -701,15 +871,16 @@ class ConnexionTestPayload(BaseModel):
 
 
 @api_router.post("/connexions/test")
-async def test_arbitrary_connexion(payload: ConnexionTestPayload, user: dict = Depends(require_role("admin"))):
-    """Teste un set de credentials avant même de l'enregistrer."""
+def test_arbitrary_connexion(payload: ConnexionTestPayload,
+                             user: dict = Depends(require_role("admin"))):
     return test_connection(
         c_type=payload.type, server=payload.server, port=payload.port,
         user=payload.user or "", password=payload.password or "", database=payload.database or "",
     )
 
 
-class InfoMega(BaseModel):
+# ---------- Méga ----------
+class InfoMegaIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
     sectbar: Optional[str] = ""
     districthab: Optional[str] = ""
@@ -727,22 +898,200 @@ class InfoMega(BaseModel):
     tous_districts: bool = False
 
 
-class Inhabilite(BaseModel):
+class InhabIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
     datedeb: str
     datefin: Optional[str] = ""
     comm: Optional[str] = ""
 
 
+@api_router.get("/avocats/{avocat_id}/mega")
+def get_mega(avocat_id: str, user: dict = Depends(get_current_user),
+             db: Session = Depends(get_db)):
+    m = db.query(InfoMega).filter_by(avocat_id=avocat_id).first()
+    if not m:
+        return {}
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    districts = []
+    if avo and avo.code:
+        districts = [d.nodist for d in db.query(InfoDistrict).filter_by(code=avo.code).all()]
+    return mega_to_dict(m, districts)
+
+
+@api_router.put("/avocats/{avocat_id}/mega")
+def upsert_mega(avocat_id: str, payload: InfoMegaIn,
+                user: dict = Depends(require_role("admin", "editeur")),
+                db: Session = Depends(get_db)):
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    now = now_iso()
+    m = db.query(InfoMega).filter_by(avocat_id=avocat_id).first()
+    if not m:
+        m = InfoMega(id=str(uuid.uuid4()), avocat_id=avocat_id, code=avo.code,
+                     created_at=now)
+        db.add(m)
+    m.sectbar = payload.sectbar or ""
+    m.districthab = payload.districthab or ""
+    m.francais = bool_to_yn(payload.francais)
+    m.anglais = bool_to_yn(payload.anglais)
+    m.autres = payload.autres or ""
+    m.experience = payload.experience or 0
+    m.details = payload.details or ""
+    m.art486 = bool_to_yn(payload.art486)
+    m.art672 = bool_to_yn(payload.art672)
+    m.art684 = bool_to_yn(payload.art684)
+    m.commentaire = payload.commentaire or ""
+    m.dateinsc = payload.dateinsc or ""
+    m.tous_districts = bool(payload.tous_districts)
+    m.mega = "O"
+    m.updated_at = now
+    m.usermodif = user.get("email", "")
+
+    # Districts : delete-and-reinsert
+    if avo.code:
+        db.query(InfoDistrict).filter_by(code=avo.code).delete()
+        for nodist in (payload.districts or []):
+            db.add(InfoDistrict(code=avo.code, nodist=int(nodist)))
+
+    avo.mega = "O"
+    avo.updated_at = now
+    db.commit()
+    _audit(db, avocat_id, "mega_update", user.get("email", ""),
+           f"Profil Méga mis à jour (sectbar={payload.sectbar or '—'}, exp={payload.experience or 0} an(s), districts={len(payload.districts or [])})")
+    return {"ok": True}
+
+
+@api_router.delete("/avocats/{avocat_id}/mega")
+def delete_mega(avocat_id: str, user: dict = Depends(require_role("admin", "editeur")),
+                db: Session = Depends(get_db)):
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    db.query(InfoMega).filter_by(avocat_id=avocat_id).delete()
+    if avo and avo.code:
+        db.query(InfoDistrict).filter_by(code=avo.code).delete()
+    if avo:
+        avo.mega = "N"
+    db.commit()
+    _audit(db, avocat_id, "mega_delete", user.get("email", ""), "Profil Méga supprimé")
+    return {"ok": True}
+
+
+# ---------- Inhabilité ----------
+@api_router.get("/avocats/{avocat_id}/inhabilites")
+def list_inhab(avocat_id: str, user: dict = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    rows = (db.query(Inhpra).filter_by(avocat_id=avocat_id)
+              .order_by(desc(Inhpra.datedeb)).limit(200).all())
+    return [inhab_to_dict(i) for i in rows]
+
+
+@api_router.post("/avocats/{avocat_id}/inhabilites", status_code=201)
+def create_inhab(avocat_id: str, payload: InhabIn,
+                 user: dict = Depends(require_role("admin", "editeur")),
+                 db: Session = Depends(get_db)):
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    now = now_iso()
+    i = Inhpra(uuid=str(uuid.uuid4()), avocat_id=avocat_id, code=avo.code,
+               datedeb=payload.datedeb, datefin=payload.datefin or "",
+               comm=payload.comm or "", created_at=now, updated_at=now)
+    db.add(i)
+    db.commit()
+    db.refresh(i)
+    _audit(db, avocat_id, "inhab_create", user.get("email", ""),
+           f"Période d'inhabilité ajoutée : {payload.datedeb} → {payload.datefin or 'en cours'}")
+    return inhab_to_dict(i)
+
+
+@api_router.put("/avocats/{avocat_id}/inhabilites/{inhab_id}")
+def update_inhab(avocat_id: str, inhab_id: str, payload: InhabIn,
+                 user: dict = Depends(require_role("admin", "editeur")),
+                 db: Session = Depends(get_db)):
+    i = db.query(Inhpra).filter_by(uuid=inhab_id, avocat_id=avocat_id).first()
+    if not i:
+        raise HTTPException(status_code=404, detail="Période introuvable")
+    i.datedeb = payload.datedeb
+    i.datefin = payload.datefin or ""
+    i.comm = payload.comm or ""
+    i.updated_at = now_iso()
+    db.commit()
+    _audit(db, avocat_id, "inhab_update", user.get("email", ""),
+           f"Période d'inhabilité modifiée : {payload.datedeb} → {payload.datefin or 'en cours'}")
+    return {"ok": True}
+
+
+@api_router.delete("/avocats/{avocat_id}/inhabilites/{inhab_id}")
+def delete_inhab(avocat_id: str, inhab_id: str,
+                 user: dict = Depends(require_role("admin", "editeur")),
+                 db: Session = Depends(get_db)):
+    i = db.query(Inhpra).filter_by(uuid=inhab_id, avocat_id=avocat_id).first()
+    if not i:
+        raise HTTPException(status_code=404, detail="Période introuvable")
+    summary = f"Période supprimée : {i.datedeb or '?'} → {i.datefin or 'en cours'}"
+    db.delete(i)
+    db.commit()
+    _audit(db, avocat_id, "inhab_delete", user.get("email", ""), summary)
+    return {"ok": True}
+
+
+# ---------- Web password ----------
+@api_router.put("/avocats/{avocat_id}/web-password")
+def set_web_password(avocat_id: str, payload: dict,
+                     user: dict = Depends(require_role("admin", "editeur")),
+                     db: Session = Depends(get_db)):
+    pwd = (payload or {}).get("password", "")
+    if len(pwd) < 6:
+        raise HTTPException(status_code=400, detail="Mot de passe trop court (min 6)")
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    avo.web_password_hash = hash_password(pwd)
+    avo.updated_at = now_iso()
+    db.commit()
+    _audit(db, avocat_id, "web_password_set", user.get("email", ""), "Mot de passe web défini")
+    return {"ok": True}
+
+
+@api_router.delete("/avocats/{avocat_id}/web-password")
+def clear_web_password(avocat_id: str, user: dict = Depends(require_role("admin", "editeur")),
+                      db: Session = Depends(get_db)):
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    avo.web_password_hash = None
+    avo.updated_at = now_iso()
+    db.commit()
+    _audit(db, avocat_id, "web_password_clear", user.get("email", ""), "Mot de passe web réinitialisé")
+    return {"ok": True}
+
+
+# ---------- Audit log ----------
+@api_router.get("/avocats/{avocat_id}/audit")
+def list_audit(avocat_id: str, user: dict = Depends(require_role("admin")),
+               db: Session = Depends(get_db),
+               page: int = Query(1, ge=1),
+               page_size: int = Query(20, ge=1, le=200)):
+    base = db.query(AuditLog).filter_by(avocat_id=avocat_id)
+    total = base.count()
+    rows = (base.order_by(desc(AuditLog.timestamp))
+                .offset((page - 1) * page_size).limit(page_size).all())
+    items = [{"id": r.id, "avocat_id": r.avocat_id, "action": r.action,
+              "user_email": r.user_email, "summary": r.summary or "",
+              "timestamp": r.timestamp} for r in rows]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+# ---------- Mandats CRUD ----------
 class MandatBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
     avocat_id: str
     requerant: str = ""
-    article: str = "486.3"  # 486.3, 486.7, 672, 684
+    article: str = "486.3"
     date_ordonnance: Optional[str] = ""
     date_emission: Optional[str] = ""
     numero: str = ""
-    groupe: str = "Pratique Privée"  # Pratique Privée | Permanent
+    groupe: str = "Pratique Privée"
     commentaire: Optional[str] = ""
 
 
@@ -757,242 +1106,159 @@ class MandatUpdate(BaseModel):
     commentaire: Optional[str] = None
 
 
-@api_router.get("/avocats/{avocat_id}/mega")
-async def get_mega(avocat_id: str, user: dict = Depends(get_current_user)):
-    doc = await db.avocat_mega.find_one({"avocat_id": avocat_id}, {"_id": 0})
-    return doc or {}
+def _mandat_to_dict(m: Mandat) -> dict:
+    return {
+        "id": m.id, "avocat_id": m.avocat_id, "requerant": m.requerant or "",
+        "article": m.article, "date_ordonnance": m.date_ordonnance or "",
+        "date_emission": m.date_emission or "", "numero": m.numero or "",
+        "groupe": m.groupe, "commentaire": m.commentaire or "",
+        "created_at": m.created_at, "updated_at": m.updated_at,
+        "usermodif": m.usermodif or "",
+    }
 
 
-@api_router.put("/avocats/{avocat_id}/mega")
-async def upsert_mega(avocat_id: str, payload: InfoMega, user: dict = Depends(require_role("admin", "editeur"))):
-    avo = await db.avocats.find_one({"id": avocat_id})
-    if not avo:
-        raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = datetime.now(timezone.utc).isoformat()
-    doc = payload.model_dump()
-    doc.update({"avocat_id": avocat_id, "updated_at": now, "usermodif": user.get("email", "")})
-    await db.avocat_mega.update_one(
-        {"avocat_id": avocat_id},
-        {"$set": doc, "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now}},
-        upsert=True,
-    )
-    await db.avocats.update_one({"id": avocat_id}, {"$set": {"mega": True, "updated_at": now}})
-    await _audit(avocat_id, "mega_update", user.get("email", ""),
-                 f"Profil Méga mis à jour (sectbar={payload.sectbar or '—'}, exp={payload.experience or 0} an(s), districts={len(payload.districts or [])})")
-    return {"ok": True}
-
-
-@api_router.delete("/avocats/{avocat_id}/mega")
-async def delete_mega(avocat_id: str, user: dict = Depends(require_role("admin", "editeur"))):
-    await db.avocat_mega.delete_one({"avocat_id": avocat_id})
-    await db.avocats.update_one({"id": avocat_id}, {"$set": {"mega": False}})
-    await _audit(avocat_id, "mega_delete", user.get("email", ""), "Profil Méga supprimé")
-    return {"ok": True}
-
-
-@api_router.get("/avocats/{avocat_id}/inhabilites")
-async def list_inhab(avocat_id: str, user: dict = Depends(get_current_user)):
-    docs = await db.avocat_inhab.find({"avocat_id": avocat_id}, {"_id": 0}).sort("datedeb", -1).to_list(length=200)
-    return docs
-
-
-@api_router.post("/avocats/{avocat_id}/inhabilites", status_code=201)
-async def create_inhab(avocat_id: str, payload: Inhabilite, user: dict = Depends(require_role("admin", "editeur"))):
-    avo = await db.avocats.find_one({"id": avocat_id})
-    if not avo:
-        raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = datetime.now(timezone.utc).isoformat()
-    doc = payload.model_dump()
-    doc.update({"id": str(uuid.uuid4()), "avocat_id": avocat_id, "created_at": now, "updated_at": now})
-    await db.avocat_inhab.insert_one(doc.copy())
-    doc.pop("_id", None)
-    await _audit(avocat_id, "inhab_create", user.get("email", ""),
-                 f"Période d'inhabilité ajoutée : {payload.datedeb} → {payload.datefin or 'en cours'}")
-    return doc
-
-
-@api_router.put("/avocats/{avocat_id}/inhabilites/{inhab_id}")
-async def update_inhab(avocat_id: str, inhab_id: str, payload: Inhabilite, user: dict = Depends(require_role("admin", "editeur"))):
-    update = payload.model_dump()
-    update["updated_at"] = datetime.now(timezone.utc).isoformat()
-    res = await db.avocat_inhab.update_one({"id": inhab_id, "avocat_id": avocat_id}, {"$set": update})
-    if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Période introuvable")
-    await _audit(avocat_id, "inhab_update", user.get("email", ""),
-                 f"Période d'inhabilité modifiée : {payload.datedeb} → {payload.datefin or 'en cours'}")
-    return {"ok": True}
-
-
-@api_router.delete("/avocats/{avocat_id}/inhabilites/{inhab_id}")
-async def delete_inhab(avocat_id: str, inhab_id: str, user: dict = Depends(require_role("admin", "editeur"))):
-    item = await db.avocat_inhab.find_one({"id": inhab_id, "avocat_id": avocat_id}, {"_id": 0})
-    res = await db.avocat_inhab.delete_one({"id": inhab_id, "avocat_id": avocat_id})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Période introuvable")
-    summary = (
-        f"Période supprimée : {item.get('datedeb','?')} → {item.get('datefin','en cours')}"
-        if item else "Période d'inhabilité supprimée"
-    )
-    await _audit(avocat_id, "inhab_delete", user.get("email", ""), summary)
-    return {"ok": True}
-
-
-@api_router.put("/avocats/{avocat_id}/web-password")
-async def set_web_password(avocat_id: str, payload: dict, user: dict = Depends(require_role("admin", "editeur"))):
-    pwd = (payload or {}).get("password", "")
-    if len(pwd) < 6:
-        raise HTTPException(status_code=400, detail="Mot de passe trop court (min 6)")
-    avo = await db.avocats.find_one({"id": avocat_id})
-    if not avo:
-        raise HTTPException(status_code=404, detail="Avocat introuvable")
-    await db.avocats.update_one({"id": avocat_id}, {"$set": {"web_password_hash": hash_password(pwd), "updated_at": datetime.now(timezone.utc).isoformat()}})
-    await _audit(avocat_id, "web_password_set", user.get("email", ""), "Mot de passe web défini")
-    return {"ok": True}
-
-
-@api_router.delete("/avocats/{avocat_id}/web-password")
-async def clear_web_password(avocat_id: str, user: dict = Depends(require_role("admin", "editeur"))):
-    await db.avocats.update_one({"id": avocat_id}, {"$unset": {"web_password_hash": ""}})
-    await _audit(avocat_id, "web_password_clear", user.get("email", ""), "Mot de passe web réinitialisé")
-    return {"ok": True}
-
-
-# ---------- Audit log ----------
-@api_router.get("/avocats/{avocat_id}/audit")
-async def list_audit(
-    avocat_id: str,
-    user: dict = Depends(require_role("admin")),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
-):
-    """Retourne l'historique paginé des modifications pour un avocat (admin uniquement).
-    Réponse : {items, total, page, page_size}.
-    """
-    skip = (page - 1) * page_size
-    total = await db.audit_log.count_documents({"avocat_id": avocat_id})
-    docs = await db.audit_log.find(
-        {"avocat_id": avocat_id}, {"_id": 0}
-    ).sort("timestamp", -1).skip(skip).limit(page_size).to_list(length=page_size)
-    items = [_audit_to_out(d) for d in docs]
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
-
-
-# ---------- Mandats CRUD ----------
 @api_router.get("/mandats")
-async def list_mandats(
-    user: dict = Depends(get_current_user),
-    avocat_id: Optional[str] = None,
-    article: Optional[str] = None,
-    date_debut: Optional[str] = None,
-    date_fin: Optional[str] = None,
-):
-    q = {}
-    if avocat_id: q["avocat_id"] = avocat_id
-    if article: q["article"] = article
+def list_mandats(user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db),
+                 avocat_id: Optional[str] = None,
+                 article: Optional[str] = None,
+                 date_debut: Optional[str] = None,
+                 date_fin: Optional[str] = None):
+    q = db.query(Mandat)
+    if avocat_id: q = q.filter(Mandat.avocat_id == avocat_id)
+    if article: q = q.filter(Mandat.article == article)
     if date_debut and date_fin:
-        q["date_ordonnance"] = {"$gte": date_debut, "$lte": date_fin}
-    docs = await db.mandats.find(q, {"_id": 0}).sort("date_ordonnance", -1).to_list(length=2000)
-    return docs
+        q = q.filter(Mandat.date_ordonnance >= date_debut, Mandat.date_ordonnance <= date_fin)
+    rows = q.order_by(desc(Mandat.date_ordonnance)).limit(2000).all()
+    return [_mandat_to_dict(m) for m in rows]
 
 
 @api_router.post("/mandats", status_code=201)
-async def create_mandat(payload: MandatBase, user: dict = Depends(require_role("admin", "editeur"))):
-    if not await db.avocats.find_one({"id": payload.avocat_id}):
+def create_mandat(payload: MandatBase, user: dict = Depends(require_role("admin", "editeur")),
+                  db: Session = Depends(get_db)):
+    if not db.query(Avocat).filter_by(id=payload.avocat_id).first():
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = datetime.now(timezone.utc).isoformat()
-    doc = payload.model_dump()
-    doc.update({"id": str(uuid.uuid4()), "created_at": now, "updated_at": now, "usermodif": user.get("email", "")})
-    await db.mandats.insert_one(doc.copy())
-    doc.pop("_id", None)
-    return doc
+    now = now_iso()
+    m = Mandat(id=str(uuid.uuid4()), avocat_id=payload.avocat_id,
+               requerant=payload.requerant, article=payload.article,
+               date_ordonnance=payload.date_ordonnance or "",
+               date_emission=payload.date_emission or "",
+               numero=payload.numero, groupe=payload.groupe,
+               commentaire=payload.commentaire or "",
+               usermodif=user.get("email", ""), created_at=now, updated_at=now)
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    return _mandat_to_dict(m)
 
 
 @api_router.put("/mandats/{mandat_id}")
-async def update_mandat(mandat_id: str, payload: MandatUpdate, user: dict = Depends(require_role("admin", "editeur"))):
-    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items()}
-    update["updated_at"] = datetime.now(timezone.utc).isoformat()
-    res = await db.mandats.update_one({"id": mandat_id}, {"$set": update})
-    if res.matched_count == 0:
+def update_mandat(mandat_id: str, payload: MandatUpdate,
+                  user: dict = Depends(require_role("admin", "editeur")),
+                  db: Session = Depends(get_db)):
+    m = db.query(Mandat).filter_by(id=mandat_id).first()
+    if not m:
         raise HTTPException(status_code=404, detail="Mandat introuvable")
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        if v is not None:
+            setattr(m, k, v)
+    m.updated_at = now_iso()
+    db.commit()
     return {"ok": True}
 
 
 @api_router.delete("/mandats/{mandat_id}")
-async def delete_mandat(mandat_id: str, user: dict = Depends(require_role("admin"))):
-    res = await db.mandats.delete_one({"id": mandat_id})
-    if res.deleted_count == 0:
+def delete_mandat(mandat_id: str, user: dict = Depends(require_role("admin")),
+                  db: Session = Depends(get_db)):
+    m = db.query(Mandat).filter_by(id=mandat_id).first()
+    if not m:
         raise HTTPException(status_code=404, detail="Mandat introuvable")
+    db.delete(m)
+    db.commit()
     return {"ok": True}
 
 
 # ---------- Rapports PDF ----------
-from pdf_reports import (
-    build_registre97,
-    build_registre98,
-    build_liste_det_bar,
-    build_liste_det_dist,
-    build_liste_det_reg,
-    build_liste_som,
+from pdf_reports import (  # noqa: E402
+    build_registre97, build_registre98, build_liste_det_bar,
+    build_liste_det_dist, build_liste_det_reg, build_liste_som,
 )
 
 
+def _avo_for_mandat(db: Session, avocat_id: str) -> dict:
+    a = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not a:
+        return {}
+    return {"code": a.code or "", "nom": a.nom, "prenom": a.prenom, "type_code": a.type_code or "P"}
+
+
 @api_router.get("/rapports/registre97")
-async def rapport_registre97(date_debut: str, date_fin: str, user: dict = Depends(get_current_user)):
-    cursor = db.mandats.find({"date_ordonnance": {"$gte": date_debut, "$lte": date_fin}}, {"_id": 0})
+def rapport_registre97(date_debut: str, date_fin: str,
+                       user: dict = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    rows = (db.query(Mandat).filter(Mandat.date_ordonnance >= date_debut,
+                                     Mandat.date_ordonnance <= date_fin).all())
     avo_cache: dict[str, dict] = {}
     rows_par_article: dict[str, list[dict]] = {}
-    for m in await cursor.to_list(length=10000):
-        if m["avocat_id"] not in avo_cache:
-            a = await db.avocats.find_one({"id": m["avocat_id"]}, {"_id": 0, "nom": 1, "prenom": 1, "code": 1, "type_code": 1})
-            avo_cache[m["avocat_id"]] = a or {}
-        a = avo_cache[m["avocat_id"]]
-        m["avocat_nom"] = f"{a.get('code','')}  {a.get('nom','')}, {a.get('prenom','')}".strip() if a else "—"
-        m["avocat_type"] = a.get("type_code", "P") if a else "P"
-        rows_par_article.setdefault(m.get("article", "486.3"), []).append(m)
+    for m in rows:
+        if m.avocat_id not in avo_cache:
+            avo_cache[m.avocat_id] = _avo_for_mandat(db, m.avocat_id)
+        a = avo_cache[m.avocat_id]
+        d = _mandat_to_dict(m)
+        d["avocat_nom"] = f"{a.get('code','')}  {a.get('nom','')}, {a.get('prenom','')}".strip() if a else "—"
+        d["avocat_type"] = a.get("type_code", "P") if a else "P"
+        rows_par_article.setdefault(d.get("article", "486.3"), []).append(d)
     pdf = build_registre97(date_debut, date_fin, rows_par_article)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
                              headers={"Content-Disposition": f'attachment; filename="registre97_{date_debut}_{date_fin}.pdf"'})
 
 
 @api_router.get("/rapports/registre98")
-async def rapport_registre98(date_debut: str, date_fin: str, user: dict = Depends(get_current_user)):
-    cursor = db.mandats.find({"date_ordonnance": {"$gte": date_debut, "$lte": date_fin}}, {"_id": 0})
+def rapport_registre98(date_debut: str, date_fin: str,
+                       user: dict = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    rows = (db.query(Mandat).filter(Mandat.date_ordonnance >= date_debut,
+                                     Mandat.date_ordonnance <= date_fin).all())
     avo_cache: dict[str, dict] = {}
     rows_par_article: dict[str, list[dict]] = {}
-    for m in await cursor.to_list(length=20000):
-        if m["avocat_id"] not in avo_cache:
-            a = await db.avocats.find_one({"id": m["avocat_id"]}, {"_id": 0, "nom": 1, "prenom": 1, "code": 1})
-            avo_cache[m["avocat_id"]] = a or {}
-        a = avo_cache[m["avocat_id"]]
-        m["avocat_code"] = a.get("code", "") if a else ""
-        m["avocat_nom"] = f"{a.get('nom','')}, {a.get('prenom','')}" if a else ""
-        rows_par_article.setdefault(m.get("article", "486.3"), []).append(m)
+    for m in rows:
+        if m.avocat_id not in avo_cache:
+            avo_cache[m.avocat_id] = _avo_for_mandat(db, m.avocat_id)
+        a = avo_cache[m.avocat_id]
+        d = _mandat_to_dict(m)
+        d["avocat_code"] = a.get("code", "") if a else ""
+        d["avocat_nom"] = f"{a.get('nom','')}, {a.get('prenom','')}" if a else ""
+        rows_par_article.setdefault(d.get("article", "486.3"), []).append(d)
     pdf = build_registre98(date_debut, date_fin, rows_par_article)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
                              headers={"Content-Disposition": f'attachment; filename="registre98_{date_debut}_{date_fin}.pdf"'})
 
 
-async def _avocats_actifs_with_mega() -> list[dict]:
-    """Charge les avocats actifs + leur fiche méga (jointure manuelle)."""
-    avos = await db.avocats.find({"actif": True}, {"_id": 0}).sort([("nom", 1), ("prenom", 1)]).to_list(length=10000)
+def _avocats_actifs_with_mega(db: Session) -> list[dict]:
+    avos = (db.query(Avocat).filter(Avocat.actif.is_(True), Avocat.id.isnot(None))
+              .order_by(asc(Avocat.nom), asc(Avocat.prenom)).all())
     if not avos:
         return []
-    ids = [a["id"] for a in avos]
-    megas = await db.avocat_mega.find({"avocat_id": {"$in": ids}}, {"_id": 0}).to_list(length=10000)
-    by_id = {m["avocat_id"]: m for m in megas}
+    out = []
     for a in avos:
-        a["_mega"] = by_id.get(a["id"]) or {}
-    return avos
+        d = avocat_to_dict(a)
+        m = db.query(InfoMega).filter_by(avocat_id=a.id).first()
+        districts = []
+        if m and a.code:
+            districts = [r.nodist for r in db.query(InfoDistrict).filter_by(code=a.code).all()]
+        d["_mega"] = mega_to_dict(m, districts) if m else {}
+        out.append(d)
+    return out
 
 
 @api_router.get("/rapports/liste-det-bar")
-async def rapport_liste_det_bar(user: dict = Depends(get_current_user)):
-    avos = await _avocats_actifs_with_mega()
+def rapport_liste_det_bar(user: dict = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    avos = _avocats_actifs_with_mega(db)
     groups: dict[str, list[dict]] = {}
     for a in avos:
         key = a.get("sectbar") or "(Sans section)"
         groups.setdefault(key, []).append(a)
-    # Ordre alphabétique des sections
     groups = {k: groups[k] for k in sorted(groups.keys())}
     pdf = build_liste_det_bar(groups)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
@@ -1000,8 +1266,9 @@ async def rapport_liste_det_bar(user: dict = Depends(get_current_user)):
 
 
 @api_router.get("/rapports/liste-det-dist")
-async def rapport_liste_det_dist(user: dict = Depends(get_current_user)):
-    avos = await _avocats_actifs_with_mega()
+def rapport_liste_det_dist(user: dict = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    avos = _avocats_actifs_with_mega(db)
     groups: dict[str, list[dict]] = {}
     for a in avos:
         ville = (a.get("adresse") or {}).get("ville") or "(Sans district)"
@@ -1013,22 +1280,23 @@ async def rapport_liste_det_dist(user: dict = Depends(get_current_user)):
 
 
 @api_router.get("/rapports/liste-det-reg")
-async def rapport_liste_det_reg(user: dict = Depends(get_current_user)):
-    # Regroupement par décennie d'inscription au barreau (équivalent VB legacy)
-    avos = await db.avocats.find({}, {"_id": 0}).sort([("annee_barreau", 1), ("nom", 1)]).to_list(length=10000)
-    ids = [a["id"] for a in avos]
-    megas = await db.avocat_mega.find({"avocat_id": {"$in": ids}}, {"_id": 0}).to_list(length=10000)
-    by_id = {m["avocat_id"]: m for m in megas}
+def rapport_liste_det_reg(user: dict = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    avos = (db.query(Avocat).filter(Avocat.id.isnot(None))
+              .order_by(asc(Avocat.annee_barreau), asc(Avocat.nom)).all())
     groups: dict[str, list[dict]] = {}
     for a in avos:
-        a["_mega"] = by_id.get(a["id"]) or {}
-        annee = a.get("annee_barreau") or ""
+        d = avocat_to_dict(a)
+        m = db.query(InfoMega).filter_by(avocat_id=a.id).first()
+        districts = [r.nodist for r in db.query(InfoDistrict).filter_by(code=a.code).all()] if a.code else []
+        d["_mega"] = mega_to_dict(m, districts) if m else {}
+        annee = d.get("annee_barreau") or ""
         if annee and str(annee).isdigit():
             decade = (int(annee) // 10) * 10
             key = f"Année barreau {decade}"
         else:
             key = "Année barreau (n.d.)"
-        groups.setdefault(key, []).append(a)
+        groups.setdefault(key, []).append(d)
     groups = {k: groups[k] for k in sorted(groups.keys())}
     pdf = build_liste_det_reg(groups)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
@@ -1036,21 +1304,22 @@ async def rapport_liste_det_reg(user: dict = Depends(get_current_user)):
 
 
 @api_router.get("/rapports/liste-som")
-async def rapport_liste_som(date_debut: Optional[str] = None, date_fin: Optional[str] = None,
-                            user: dict = Depends(get_current_user)):
+def rapport_liste_som(date_debut: Optional[str] = None, date_fin: Optional[str] = None,
+                      user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
     if not date_debut:
         date_debut = datetime.now().strftime("%Y-%m-01")
     if not date_fin:
         date_fin = datetime.now().strftime("%Y-%m-%d")
-    avos = await _avocats_actifs_with_mega()
+    avos = _avocats_actifs_with_mega(db)
     pdf = build_liste_som(date_debut, date_fin, avos)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
                              headers={"Content-Disposition": 'attachment; filename="liste_som.pdf"'})
 
 
 @api_router.get("/")
-async def root():
-    return {"app": "GestionCardex", "version": "1.0.0"}
+def root():
+    return {"app": "GestionCardex", "version": "2.0.0", "backend": "SQLAlchemy/SQLite"}
 
 
 # ---------- App wiring ----------
@@ -1067,112 +1336,68 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-async def on_startup():
-    # Indexes
-    await db.users.create_index("email", unique=True)
-    await db.users.create_index("id", unique=True)
-    await db.avocats.create_index("code", unique=True)
-    await db.avocats.create_index("id", unique=True)
-    await db.avocats.create_index([("nom", 1), ("prenom", 1)])
-    # Audit log : index composite pour requêtes par avocat triées par date
-    await db.audit_log.create_index([("avocat_id", 1), ("timestamp", -1)])
+def on_startup():
+    """Initialise tables (idempotent), seed admin/TI/connexions."""
+    Base.metadata.create_all(bind=engine)
 
-    # Migration legacy — convertit les timestamps audit_log ISO string → datetime BSON natif
-    legacy_count = await db.audit_log.count_documents({"timestamp": {"$type": "string"}})
-    if legacy_count > 0:
-        async for doc in db.audit_log.find({"timestamp": {"$type": "string"}}, {"id": 1, "timestamp": 1}):
-            try:
-                ts_str = doc["timestamp"].replace("Z", "+00:00")
-                dt = datetime.fromisoformat(ts_str)
-                await db.audit_log.update_one({"id": doc["id"]}, {"$set": {"timestamp": dt}})
-            except Exception as e:
-                logger.warning(f"audit_log migration skipped {doc.get('id')}: {e}")
-        logger.info(f"audit_log: {legacy_count} timestamp(s) ISO string → datetime BSON natif")
+    db = next(get_db())
+    try:
+        # ----- Seed admin -----
+        admin_email = os.environ.get("ADMIN_EMAIL", "admin@gestioncardex.qc").lower()
+        admin_password = os.environ.get("ADMIN_PASSWORD", "Admin2026!")
+        existing = db.query(AppUser).filter_by(email=admin_email).first()
+        if not existing:
+            db.add(AppUser(id=str(uuid.uuid4()), email=admin_email,
+                           password_hash=hash_password(admin_password),
+                           name="Administrateur", role="admin", created_at=now_iso()))
+            db.commit()
+            logger.info(f"Admin créé: {admin_email}")
+        elif not verify_password(admin_password, existing.password_hash):
+            existing.password_hash = hash_password(admin_password)
+            db.commit()
+            logger.info(f"Mot de passe admin mis à jour: {admin_email}")
 
-    # Seed admin
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@gestioncardex.qc").lower()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "Admin2026!")
-    existing = await db.users.find_one({"email": admin_email})
-    if not existing:
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()),
-            "email": admin_email,
-            "password_hash": hash_password(admin_password),
-            "name": "Administrateur",
-            "role": "admin",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        logger.info(f"Admin créé: {admin_email}")
-    elif not verify_password(admin_password, existing["password_hash"]):
-        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
-        logger.info(f"Mot de passe admin mis à jour: {admin_email}")
+        # ----- Seed TI -----
+        ti_email = os.environ.get("TI_EMAIL", "ti@gestioncardex.qc").lower()
+        ti_password = os.environ.get("TI_PASSWORD", "Ti2026!")
+        ti_existing = db.query(AppUser).filter_by(email=ti_email).first()
+        if not ti_existing:
+            db.add(AppUser(id=str(uuid.uuid4()), email=ti_email,
+                           password_hash=hash_password(ti_password),
+                           name="Technicien TI", role="ti", created_at=now_iso()))
+            db.commit()
+            logger.info(f"Compte TI créé: {ti_email}")
 
-    # Seed compte TI
-    ti_email = os.environ.get("TI_EMAIL", "ti@gestioncardex.qc").lower()
-    ti_password = os.environ.get("TI_PASSWORD", "Ti2026!")
-    ti_existing = await db.users.find_one({"email": ti_email})
-    if not ti_existing:
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()),
-            "email": ti_email,
-            "password_hash": hash_password(ti_password),
-            "name": "Technicien TI",
-            "role": "ti",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        logger.info(f"Compte TI créé: {ti_email}")
+        # ----- Seed connexions SQLite -----
+        sqlite_seeds = [
+            {"name": "CardAvo (SQLite local)", "file": "sqlite_dbs/CardAvo.db",
+             "description": "Base principale de l'app — tables Avocats, Adresses, infomega, inhpra, Mandats, AppUsers, AuditLog, Connexions."},
+            {"name": "StaticPc (SQLite local)", "file": "sqlite_dbs/StaticPc.db",
+             "description": "Base de référence — 84 tables (codes, listes, paramètres)."},
+            {"name": "Art52 (SQLite local)", "file": "sqlite_dbs/Art52.db",
+             "description": "Base Article 52 — 126 tables (paiements et règlements)."},
+        ]
+        for s in sqlite_seeds:
+            if not db.query(Connexion).filter_by(name=s["name"]).first():
+                now = now_iso()
+                db.add(Connexion(id=str(uuid.uuid4()), name=s["name"], type="sqlite",
+                                 server="(fichier local)", port=None, user="",
+                                 database=s["file"], description=s["description"],
+                                 password_enc="", is_primary=(s["name"].startswith("CardAvo")),
+                                 created_at=now, updated_at=now))
+                db.commit()
+                logger.info(f"SQLite seed: {s['name']}")
 
-    # Seed connexions : entrée primaire en lecture seule pour MONGO_URL courant
-    await db.connexions.create_index("id", unique=True)
-    primary_existing = await db.connexions.find_one({"is_primary": True})
-    if not primary_existing:
-        from connexions import parse_mongo_url
-        parsed = parse_mongo_url(os.environ.get("MONGO_URL", ""))
-        await db.connexions.insert_one({
-            "id": str(uuid.uuid4()),
-            "name": "MongoDB principal (en service)",
-            "type": "mongodb",
-            "server": parsed["server"],
-            "port": parsed["port"],
-            "user": parsed["user"],
-            "database": os.environ.get("DB_NAME", parsed["database"]),
-            "description": "Connexion utilisée actuellement par l'application — lecture seule.",
-            "password_enc": "",
-            "is_primary": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        })
-        logger.info("Connexion primaire seeded")
-
-    # Seed des 3 BDD SQLite (équivalent local des 3 BDD SQL Server legacy)
-    sqlite_seeds = [
-        {"name": "sCardAvo (SQLite local)", "file": "sqlite_dbs/sCardAvo.db",
-         "description": "Équivalent SQLite de sCardAvo.sql — 19 tables (Avocats, Adresses, infomega, inhpra, etc.). Utilisé pour préparer la migration vers SQL Server en production."},
-        {"name": "sStaticPc (SQLite local)", "file": "sqlite_dbs/sStaticPc.db",
-         "description": "Équivalent SQLite de sStaticPc.sql — 84 tables de référence (codes, listes, paramètres)."},
-        {"name": "sArt52 (SQLite local)", "file": "sqlite_dbs/sArt52.db",
-         "description": "Équivalent SQLite de sArt52.sql — 126 tables (paiements et règlements Article 52)."},
-    ]
-    for s in sqlite_seeds:
-        if not await db.connexions.find_one({"name": s["name"]}):
-            now_iso = datetime.now(timezone.utc).isoformat()
-            await db.connexions.insert_one({
-                "id": str(uuid.uuid4()),
-                "name": s["name"],
-                "type": "sqlite",
-                "server": "(fichier local)",
-                "port": None,
-                "user": "",
-                "database": s["file"],
-                "description": s["description"],
-                "password_enc": "",
-                "is_primary": False,
-                "created_at": now_iso,
-                "updated_at": now_iso,
-            })
-            logger.info(f"SQLite seed: {s['name']}")
+        # Nettoyage anciens enregistrements MongoDB / sCardAvo* qui pourraient persister
+        old_names = ["MongoDB principal (en service)", "sCardAvo (SQLite local)",
+                     "sStaticPc (SQLite local)", "sArt52 (SQLite local)"]
+        for name in old_names:
+            old = db.query(Connexion).filter_by(name=name).first()
+            if old:
+                db.delete(old)
+        db.commit()
+    finally:
+        db.close()
 
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+# (pas de shutdown explicite : SQLAlchemy gère le pool tout seul)

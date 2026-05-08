@@ -59,15 +59,23 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
             setConfirm({ type: "promote" });
             return;
         }
-        // Cas 3 : pas de conflit → save direct
+        // Cas 3 : switch OFF + une autre adresse est déjà courante
+        //         → on demande quand même si l'utilisateur veut basculer la courante sur celle-ci
+        if (!editAdr?.courant && existingCourante) {
+            setConfirm({ type: "switch", existing: existingCourante });
+            return;
+        }
+        // Sinon : pas de conflit → save direct
         onSave();
     };
 
-    // Confirmé "Oui, remplacer" / "Oui, définir comme courante"
+    // Confirmé "Oui" :
+    //  - promote : on bascule le switch ON et on save
+    //  - switch  : idem (on définit cette adresse comme courante, l'autre sera rétrogradée par le backend)
+    //  - replace : save tel quel (le switch est déjà ON)
     const confirmYes = () => {
-        if (confirm?.type === "promote" && !editAdr.courant) {
+        if (confirm?.type === "promote" || confirm?.type === "switch") {
             setEditAdr({ ...editAdr, courant: true });
-            // setEditAdr est asynchrone — on appelle onSave au prochain tick avec la nouvelle valeur
             setTimeout(() => onSave(), 0);
         } else {
             onSave();
@@ -75,14 +83,14 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
         setConfirm(null);
     };
 
-    // "Non, garder l'autre" → pour replace : on désactive le switch et on save quand même
-    // (l'utilisateur a refusé le remplacement, donc cette adresse n'est pas courante)
+    // Confirmé "Non" :
+    //  - replace : on désactive le switch (l'autre reste courante) puis save
+    //  - promote / switch : save tel quel sans courante
     const confirmNo = () => {
         if (confirm?.type === "replace") {
             setEditAdr({ ...editAdr, courant: false });
             setTimeout(() => onSave(), 0);
         } else {
-            // promote refusé : save sans courante
             onSave();
         }
         setConfirm(null);
@@ -213,7 +221,7 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
 
             <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>
                 <AlertDialogContent data-testid="adr-confirm-dialog">
-                    {confirm?.type === "replace" ? (
+                    {confirm?.type === "replace" && (
                         <>
                             <AlertDialogHeader>
                                 <AlertDialogTitle>Remplacer l'adresse courante ?</AlertDialogTitle>
@@ -229,7 +237,8 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
                                 <AlertDialogAction onClick={confirmYes} data-testid="adr-confirm-yes" className="bg-[#0033A0] hover:bg-[#002277]">Oui, remplacer</AlertDialogAction>
                             </AlertDialogFooter>
                         </>
-                    ) : (
+                    )}
+                    {confirm?.type === "promote" && (
                         <>
                             <AlertDialogHeader>
                                 <AlertDialogTitle>Définir comme adresse courante ?</AlertDialogTitle>
@@ -241,6 +250,22 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
                             <AlertDialogFooter>
                                 <AlertDialogCancel onClick={confirmNo} data-testid="adr-confirm-no">Non, enregistrer sans</AlertDialogCancel>
                                 <AlertDialogAction onClick={confirmYes} data-testid="adr-confirm-yes" className="bg-[#0033A0] hover:bg-[#002277]">Oui, la définir comme courante</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </>
+                    )}
+                    {confirm?.type === "switch" && (
+                        <>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Définir cette adresse comme courante ?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    L'adresse <span className="font-semibold">{confirm.existing?.address || "—"}</span>
+                                    {confirm.existing?.ville ? `, ${confirm.existing.ville}` : ""} est actuellement la courante.
+                                    Voulez-vous plutôt définir <span className="font-semibold">cette nouvelle adresse</span> comme courante ?
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel onClick={confirmNo} data-testid="adr-confirm-no">Non, garder l'autre</AlertDialogCancel>
+                                <AlertDialogAction onClick={confirmYes} data-testid="adr-confirm-yes" className="bg-[#0033A0] hover:bg-[#002277]">Oui, basculer sur celle-ci</AlertDialogAction>
                             </AlertDialogFooter>
                         </>
                     )}

@@ -225,7 +225,8 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
 
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="sm:max-w-3xl w-full overflow-y-auto" data-testid="avocat-sheet">
+            <SheetContent className="!w-screen !max-w-none sm:!max-w-none overflow-y-auto" data-testid="avocat-sheet">
+                <div className="max-w-7xl mx-auto">
                 <SheetHeader>
                     <SheetTitle className="font-display text-2xl tracking-tight">
                         {isEditing ? `${form.prenom} ${form.nom} (${form.code})` : "Nouvel avocat"}
@@ -306,6 +307,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                         </TabsContent>
                     )}
                 </Tabs>
+                </div>
             </SheetContent>
         </Sheet>
     );

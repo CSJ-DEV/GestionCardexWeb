@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api, { formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -55,20 +55,23 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     const [mega, setMega] = useState(EMPTY_MEGA);
     const [megaSaving, setMegaSaving] = useState(false);
 
-    // Baselines (= état "propre" après dernier load/save) pour calculer le dirty flag
-    const baselineRef = useRef({ ident: stable(pickIdent(EMPTY_AVOCAT)), web: stable(pickWeb(EMPTY_AVOCAT)), mega: stable(EMPTY_MEGA) });
+    // Baselines (= état "propre" après dernier load/save) — useState pour que tout
+    // changement déclenche la recomputation des useMemo dirty (sinon useRef reste invisible à React).
+    const [baseline, setBaseline] = useState({
+        ident: stable(pickIdent(EMPTY_AVOCAT)),
+        web: stable(pickWeb(EMPTY_AVOCAT)),
+        mega: stable(EMPTY_MEGA),
+    });
 
     // Effet 1 — synchronise le formulaire chaque fois que le parent passe un nouvel avocat
     useEffect(() => {
         if (avocat?.id) {
             const next = { ...EMPTY_AVOCAT, ...avocat, adresse: { ...EMPTY_AVOCAT.adresse, ...(avocat.adresse || {}) } };
             setForm(next);
-            baselineRef.current.ident = stable(pickIdent(next));
-            baselineRef.current.web = stable(pickWeb(next));
+            setBaseline((b) => ({ ...b, ident: stable(pickIdent(next)), web: stable(pickWeb(next)) }));
         } else if (avocat) {
             setForm(EMPTY_AVOCAT);
-            baselineRef.current.ident = stable(pickIdent(EMPTY_AVOCAT));
-            baselineRef.current.web = stable(pickWeb(EMPTY_AVOCAT));
+            setBaseline((b) => ({ ...b, ident: stable(pickIdent(EMPTY_AVOCAT)), web: stable(pickWeb(EMPTY_AVOCAT)) }));
         }
     }, [avocat]);
 
@@ -78,7 +81,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
             setAdresses([]);
             setInhabs([]);
             setMega(EMPTY_MEGA);
-            baselineRef.current.mega = stable(EMPTY_MEGA);
+            setBaseline((b) => ({ ...b, mega: stable(EMPTY_MEGA) }));
             if (avocat) {
                 api.get(`/avocats/next-code?type=A`).then(({ data }) => setForm((f) => ({ ...f, code: data.code }))).catch(() => {});
             }
@@ -89,21 +92,21 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         api.get(`/avocats/${avocatId}/mega`).then(({ data }) => {
             const next = data && Object.keys(data).length > 0 ? { ...EMPTY_MEGA, ...data } : EMPTY_MEGA;
             setMega(next);
-            baselineRef.current.mega = stable(next);
+            setBaseline((b) => ({ ...b, mega: stable(next) }));
         }).catch(() => {
             setMega(EMPTY_MEGA);
-            baselineRef.current.mega = stable(EMPTY_MEGA);
+            setBaseline((b) => ({ ...b, mega: stable(EMPTY_MEGA) }));
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [avocatId]);
 
-    // Calcul des flags dirty
-    const identDirty = useMemo(() => stable(pickIdent(form)) !== baselineRef.current.ident, [form]);
+    // Calcul des flags dirty (recomputés quand form/mega OU baseline changent)
+    const identDirty = useMemo(() => stable(pickIdent(form)) !== baseline.ident, [form, baseline.ident]);
     const webDirty = useMemo(
-        () => stable(pickWeb(form)) !== baselineRef.current.web || (form._webpwd && form._webpwd.length > 0),
-        [form],
+        () => stable(pickWeb(form)) !== baseline.web || (form._webpwd && form._webpwd.length > 0),
+        [form, baseline.web],
     );
-    const megaDirty = useMemo(() => stable(mega) !== baselineRef.current.mega, [mega]);
+    const megaDirty = useMemo(() => stable(mega) !== baseline.mega, [mega, baseline.mega]);
     const adresseDirty = editAdr !== null;
     const inhabDirty = editInhab !== null;
 
@@ -136,9 +139,8 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                 ({ data } = await api.post("/avocats", form));
                 toast.success("Avocat créé");
             }
-            // Reset baseline ident+web après succès (les valeurs courantes deviennent propres)
-            baselineRef.current.ident = stable(pickIdent(form));
-            baselineRef.current.web = stable(pickWeb(form));
+            // Reset baseline ident+web après succès → invalide les useMemo dirty
+            setBaseline((b) => ({ ...b, ident: stable(pickIdent(form)), web: stable(pickWeb(form)) }));
             onSaved?.({ updatedAvocat: data });
         } catch (err) {
             toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
@@ -211,7 +213,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         setMegaSaving(true);
         try {
             await api.put(`/avocats/${avocatId}/mega`, mega);
-            baselineRef.current.mega = stable(mega);
+            setBaseline((b) => ({ ...b, mega: stable(mega) }));
             toast.success("Profil Méga enregistré");
             onSaved?.({ close: false });
         } catch (err) {

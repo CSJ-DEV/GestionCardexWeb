@@ -195,8 +195,17 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - **Optimisation `useEffect`** : 2 effets séparés — form-sync sur `[avocat]` (léger), heavy-fetch (adresses/inhab/mega) sur `[avocat?.id]` uniquement → plus de refetches après PUT identification
 - **Tests** : `iteration_6.json` — backend 13/13 pytest (100%), frontend sans régression du fix P0
 
-## Backlog après Phase 5
+## Phase 6 — Indicateurs dirty + Audit log (2026-02 fork, suite)
+**Implémenté** :
+- **Frontend P2 — Dirty dots sur les TabsTrigger** : point ambré qui apparaît dès qu'un onglet a des modifications non enregistrées et disparaît automatiquement après sauvegarde. 5 indicateurs : `dirty-ident`, `dirty-adr`, `dirty-inhab`, `dirty-mega`, `dirty-web`. Implémentation via `useState` baselines + `useMemo` + sérialisation stable JSON.
+- **Backend P3 — Audit log** : nouvelle collection `audit_log` (index composite `avocat_id + timestamp:-1`), helper `_audit()` best-effort, instrumenté sur 12 actions (create/update/delete avocat, adresse_create/update/delete, mega_update/delete, inhab_create/update/delete, web_password_set/clear). Endpoint `GET /api/avocats/{id}/audit` admin-only.
+- **Frontend P3 — Onglet Historique** (`/components/avocat/HistoriqueTab.jsx`) visible uniquement pour `admin`. Affiche chaque entrée avec badge coloré (Modification/Création/Suppression/Méga/Adresse/Inhab/MdP), résumé lisible, date locale `fr-CA`, email utilisateur. La grille des onglets passe à `grid-cols-6` pour admin, `grid-cols-5` sinon.
+- **Bug corrigé en cours d'itération** : conversion `useRef → useState` pour les baselines afin que `setBaseline()` invalide les `useMemo` (sans ça le dirty-mega restait visible après save).
+- **Tests** : `iteration_7.json` — backend 10/10 pytest (100%), frontend après fix dirty-mega : tous les flags se mettent à jour correctement, test live confirmé.
+
+## Backlog après Phase 6
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
-- **P2** Indicateur visuel "modifications non enregistrées" sur les TabsTrigger (UX)
-- **P3** Audit log des modifications avocats (qui, quand, quoi)
-- **P3** Streaming PDF par chunks pour gros datasets (actuellement chargés en mémoire)
+- **P3** Streaming PDF par chunks pour gros datasets (actuellement tout en mémoire)
+- **P3** Stocker timestamps audit en datetime BSON natif au lieu d'ISO string (plus robuste)
+- **P3** Pagination de l'historique côté UI (actuellement limit=200)
+- **P3** Tests E2E par rôles (admin/éditeur/lecteur) systématiques

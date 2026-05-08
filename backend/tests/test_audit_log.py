@@ -85,9 +85,13 @@ def avocat_id(admin_session):
 # ---------- Helpers ----------
 
 def fetch_audit(session, avocat_id):
-    r = session.get(f"{API}/avocats/{avocat_id}/audit")
+    r = session.get(f"{API}/avocats/{avocat_id}/audit", params={"page": 1, "page_size": 200})
     assert r.status_code == 200, f"audit GET failed: {r.status_code} {r.text}"
-    return r.json()
+    body = r.json()
+    # New paginated shape: {items, total, page, page_size}
+    if isinstance(body, dict) and "items" in body:
+        return body["items"]
+    return body
 
 
 def assert_entry_shape(entry, expected_avocat_id):
@@ -118,7 +122,9 @@ class TestAuditAuthZ:
         r = admin_session.get(f"{API}/avocats/{avocat_id}/audit")
         assert r.status_code == 200
         body = r.json()
-        assert isinstance(body, list)
+        # Paginated response shape
+        assert isinstance(body, dict) and "items" in body and "total" in body
+        assert isinstance(body["items"], list)
 
 
 # ---------- Action coverage on each CRUD ----------

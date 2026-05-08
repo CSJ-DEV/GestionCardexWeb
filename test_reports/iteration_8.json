@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 8 — P3 audit pagination (backend) + native BSON datetime timestamps + HistoriqueTab UI controls. Backend 21/21 pytest pass: paginated response shape {items,total,page,page_size}, default page=1/page_size=20, custom page_size cap (5/200), page2 distinct or empty, 422 validation for page=0/-1 and page_size=0/-1/201/1000, sort timestamp DESC verified by driving 3 successive PUT then asserting ts[0]>ts[1]>ts[2], timestamp returned as ISO string in HTTP body, all 12 audit actions still captured (create, update, adresse_create/update/delete, mega_update/delete, inhab_create/update/delete, web_password_set/clear), AuthZ 401/403/200 OK, all 6 PDF report endpoints regression OK. MongoDB direct check confirms migration: total=19 entries, string_ts=0, date_ts=19. Frontend 7/7 acceptance criteria pass: hist-count renders 'X entrée(s) au total — page Y sur Z', pagination controls visible only when totalPages>1, hist-prev/hist-next functional (page 1→2), page2 has correct remainder rows (26 total → 6 rows on page 2), no pagination shown for ≤20 entries (singleton avocat), page resets to 1 on avocat change.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_audit_pagination.py",
+    "/app/backend/tests/test_audit_log.py",
+    "/app/test_reports/pytest/iteration_8_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py _audit() (l.145) now stores timestamp as datetime.now(timezone.utc) (BSON native) — correct. _audit_to_out() (l.163) converts back to ISO string for HTTP responses — clean separation.",
+    "GET /avocats/{id}/audit (l.672) uses Query(ge=1, le=200) for page_size and ge=1 for page → automatic 422 by FastAPI, no manual validation needed; verified.",
+    "Migration block (l.892-901) is idempotent (count_documents check before iterating) and best-effort (try/except per doc). Once migrated, count returns 0 and no work is done on subsequent restarts. logger.info confirms 19 conversions in iteration 7→8 transition.",
+    "audit_log composite index (avocat_id ASC, timestamp DESC) at l.889 ensures O(log n) paginated retrieval even at scale; sort on native datetime is now lexicographically and chronologically equivalent.",
+    "HistoriqueTab.jsx (124 lines) is well-structured: dual useEffect (data fetch on [avocatId,page] + reset on [avocatId]), cancellation token in fetch, totalPages derived not stored, conditional rendering of pagination controls. data-testids hist-count/hist-prev/hist-next/hist-list/hist-empty all present.",
+    "Minor nit: HistoriqueTab fetch error handler swallows the error silently (catch(()=>setItems([]))); a toast.error or console.warn would aid debugging in production.",
+    "Minor nit (UX): when totalPages drops between fetches (e.g., user is on page 5 then total shrinks to 3 pages worth of data), 'page > totalPages' results in an empty list with disabled Prev/Next. Consider clamping page in the data-fetch effect."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_audit_pagination.py (NEW)",
+    "/app/backend/tests/test_audit_log.py (UPDATED — adapted fetch_audit + AuthZ test for new paginated response shape)"
+  ],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "100% (7/7)"},
+  "test_credentials": "admin@gestioncardex.qc / Admin2026! (admin)",
+  "seed_data_creation": "Backend pytest fixtures create ephemeral avocats (TST<rand>) per test class and tear them down. UI test created two avocats via REST: TST00591 (PaginUI/Test, 26 audit entries from create+25 PUTs) and TSTF4D6B (NoPagin/Test, 1 audit entry); both deleted after UI test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 8 P3 fully validated end-to-end. Backend pagination contract is locked: GET /avocats/{id}/audit returns {items, total, page, page_size} with FastAPI Query validation (page ge=1, page_size ge=1 le=200 → 422 on out-of-range). Timestamps are native BSON datetime (verified via direct mongo introspection: 0 string ts, 19 date ts) and serialized to ISO string via _audit_to_out() before HTTP. Migration is idempotent. HistoriqueTab UI fully functional with hist-prev/hist-next/hist-count/hist-list/hist-empty/hist-row-* testids. Note: previous iteration_7 dirty-mega bug appears resolved (orange dot now clears after Méga save) — main agent likely fixed it; not explicitly retested in this run since it was outside the iteration 8 scope, but no UI regression observed.",
+  "rca of the issue": "N/A — all tests pass."
+}

@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+
+const PAGE_SIZE = 20;
 
 const ACTION_LABEL = {
     create: { label: "Création", className: "bg-green-100 text-green-800 hover:bg-green-100" },
@@ -26,23 +29,41 @@ const fmtDate = (iso) => {
 
 export const HistoriqueTab = ({ avocatId }) => {
     const [items, setItems] = useState(null);
+    const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(1);
 
     useEffect(() => {
         if (!avocatId) {
             setItems([]);
+            setTotal(0);
             return;
         }
         let cancelled = false;
-        api.get(`/avocats/${avocatId}/audit`)
-            .then(({ data }) => { if (!cancelled) setItems(data || []); })
-            .catch(() => { if (!cancelled) setItems([]); });
+        setItems(null);
+        api.get(`/avocats/${avocatId}/audit`, { params: { page, page_size: PAGE_SIZE } })
+            .then(({ data }) => {
+                if (cancelled) return;
+                setItems(data.items || []);
+                setTotal(data.total || 0);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setItems([]);
+                setTotal(0);
+            });
         return () => { cancelled = true; };
-    }, [avocatId]);
+    }, [avocatId, page]);
+
+    // Reset à la page 1 quand on change d'avocat
+    useEffect(() => { setPage(1); }, [avocatId]);
 
     if (items === null) {
         return <div className="text-sm text-slate-500 py-6 text-center">Chargement…</div>;
     }
-    if (items.length === 0) {
+
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+    if (total === 0) {
         return (
             <div className="text-sm text-slate-500 text-center py-8 border border-dashed border-slate-300 rounded-md" data-testid="hist-empty">
                 Aucune modification enregistrée pour cette fiche.
@@ -51,9 +72,9 @@ export const HistoriqueTab = ({ avocatId }) => {
     }
 
     return (
-        <div className="space-y-2" data-testid="hist-list">
-            <p className="text-xs text-slate-500">
-                {items.length} entrée{items.length > 1 ? "s" : ""} — du plus récent au plus ancien.
+        <div className="space-y-3" data-testid="hist-list">
+            <p className="text-xs text-slate-500" data-testid="hist-count">
+                {total} entrée{total > 1 ? "s" : ""} au total — page {page} sur {totalPages}.
             </p>
             <div className="border border-slate-200 rounded-md divide-y divide-slate-100 overflow-hidden">
                 {items.map((it) => {
@@ -71,6 +92,32 @@ export const HistoriqueTab = ({ avocatId }) => {
                     );
                 })}
             </div>
+
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between text-sm pt-1">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page <= 1}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        data-testid="hist-prev"
+                        className="rounded-md"
+                    >
+                        Précédent
+                    </Button>
+                    <span className="text-xs text-slate-500">Page {page} / {totalPages}</span>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page >= totalPages}
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        data-testid="hist-next"
+                        className="rounded-md"
+                    >
+                        Suivant
+                    </Button>
+                </div>
+            )}
         </div>
     );
 };

@@ -145,6 +145,7 @@ def funcValidNoAssSoc(no: str) -> bool:
 async def _audit(avocat_id: str, action: str, user_email: str, summary: str) -> None:
     """Trace une modification d'avocat (ou entité enfant) dans audit_log.
     Best-effort : ne fait jamais échouer l'opération principale.
+    Le timestamp est stocké en datetime BSON natif (tri/index plus robuste).
     """
     try:
         await db.audit_log.insert_one({
@@ -153,10 +154,18 @@ async def _audit(avocat_id: str, action: str, user_email: str, summary: str) -> 
             "action": action,
             "user_email": user_email or "système",
             "summary": summary,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(timezone.utc),
         })
     except Exception as e:
         logger.warning(f"audit_log insert failed: {e}")
+
+
+def _audit_to_out(doc: dict) -> dict:
+    """Sérialise une entrée d'audit pour réponse HTTP (datetime → ISO)."""
+    ts = doc.get("timestamp")
+    if isinstance(ts, datetime):
+        doc["timestamp"] = ts.isoformat()
+    return doc
 
 
 class LoginIn(BaseModel):
@@ -661,13 +670,22 @@ async def clear_web_password(avocat_id: str, user: dict = Depends(require_role("
 
 # ---------- Audit log ----------
 @api_router.get("/avocats/{avocat_id}/audit")
-async def list_audit(avocat_id: str, user: dict = Depends(require_role("admin")),
-                     limit: int = Query(200, ge=1, le=1000)):
-    """Retourne l'historique des modifications pour un avocat (admin uniquement)."""
+async def list_audit(
+    avocat_id: str,
+    user: dict = Depends(require_role("admin")),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+):
+    """Retourne l'historique paginé des modifications pour un avocat (admin uniquement).
+    Réponse : {items, total, page, page_size}.
+    """
+    skip = (page - 1) * page_size
+    total = await db.audit_log.count_documents({"avocat_id": avocat_id})
     docs = await db.audit_log.find(
         {"avocat_id": avocat_id}, {"_id": 0}
-    ).sort("timestamp", -1).to_list(length=limit)
-    return docs
+    ).sort("timestamp", -1).skip(skip).limit(page_size).to_list(length=page_size)
+    items = [_audit_to_out(d) for d in docs]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 # ---------- Mandats CRUD ----------
@@ -869,6 +887,18 @@ async def on_startup():
     await db.avocats.create_index([("nom", 1), ("prenom", 1)])
     # Audit log : index composite pour requêtes par avocat triées par date
     await db.audit_log.create_index([("avocat_id", 1), ("timestamp", -1)])
+
+    # Migration legacy — convertit les timestamps audit_log ISO string → datetime BSON natif
+    legacy_count = await db.audit_log.count_documents({"timestamp": {"$type": "string"}})
+    if legacy_count > 0:
+        async for doc in db.audit_log.find({"timestamp": {"$type": "string"}}, {"id": 1, "timestamp": 1}):
+            try:
+                ts_str = doc["timestamp"].replace("Z", "+00:00")
+                dt = datetime.fromisoformat(ts_str)
+                await db.audit_log.update_one({"id": doc["id"]}, {"$set": {"timestamp": dt}})
+            except Exception as e:
+                logger.warning(f"audit_log migration skipped {doc.get('id')}: {e}")
+        logger.info(f"audit_log: {legacy_count} timestamp(s) ISO string → datetime BSON natif")
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gestioncardex.qc").lower()

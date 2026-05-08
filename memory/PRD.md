@@ -166,3 +166,20 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - Migrer `@app.on_event` vers FastAPI `lifespan()`
 - Ajouter brute-force lockout sur /auth/login (5 essais)
 - Cookie `secure` pilotable via `COOKIE_SECURE` env pour prod
+
+
+## Phase 4 — Hardening + Bug-fix UX AvocatSheet (2026-05-08 / 2026-02 fork)
+**Implémenté** :
+- Brute-force lockout sur `/auth/login` (5 essais) + cookie `secure` via `COOKIE_SECURE` env
+- **Fix P0 (fork actuel)** : `AvocatSheet` ne se ferme plus à chaque sauvegarde de sous-onglet
+  - `AvocatsList.handleSaved({ close, updatedAvocat })` : ferme uniquement si `close=true` ; bascule en mode édition après création (POST → `setEditing(updatedAvocat)`)
+  - `saveAdresse`, `saveMega`, `saveInhab` (implicite) : passent `{close:false}` → la fenêtre reste ouverte, fidèle au workflow VB.NET
+  - `handleSubmit` (POST/PUT identification) : passe `{updatedAvocat: data}` → après création, les onglets Adresses/Inhab/Méga/Web deviennent activés sans réouvrir la fiche
+  - `useEffect` charge maintenant **adresses + inhabilités + profil méga** depuis le backend → pas de perte de données existantes lors de la réouverture
+- **Tests** : `iteration_5.json` — 8/8 critères d'acceptation validés (100% frontend)
+
+## Backlog après ce fork
+- **P1** Pixel-perfect des 5 PDF (alignement, en-têtes, polices) vs Crystal Reports legacy fournis
+- **P2** Refactor `AvocatSheet.jsx` (~540 lignes) en sous-composants `AdressesTab`, `MegaTab`, `InhabTab`, `WebTab`
+- **P2** Optimisation: clé `useEffect` sur `avocat?.id` au lieu de `avocat` pour éviter les refetches redondants
+- **P3** Script de migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql)

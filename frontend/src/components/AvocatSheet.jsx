@@ -136,6 +136,45 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         }
     };
 
+    const reloadInhabs = async () => {
+        const { data } = await api.get(`/avocats/${avocat.id}/inhabilites`);
+        setInhabs(data || []);
+    };
+    const saveInhab = async () => {
+        if (!editInhab?.datedeb) { toast.error("Date début requise"); return; }
+        const { id, ...payload } = editInhab;
+        try {
+            if (id) await api.put(`/avocats/${avocat.id}/inhabilites/${id}`, payload);
+            else await api.post(`/avocats/${avocat.id}/inhabilites`, payload);
+            toast.success("Période enregistrée");
+            setEditInhab(null);
+            reloadInhabs();
+        } catch (err) { toast.error(formatApiError(err.response?.data?.detail) || "Erreur"); }
+    };
+    const deleteInhab = async (item) => {
+        if (!confirm("Supprimer cette période ?")) return;
+        try {
+            await api.delete(`/avocats/${avocat.id}/inhabilites/${item.id}`);
+            toast.success("Période supprimée");
+            reloadInhabs();
+        } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
+    };
+    const saveMega = async () => {
+        setMegaSaving(true);
+        try {
+            await api.put(`/avocats/${avocat.id}/mega`, mega);
+            toast.success("Profil Méga enregistré");
+            onSaved?.();
+        } catch (err) {
+            toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
+        } finally { setMegaSaving(false); }
+    };
+    const toggleDistrict = (d) => {
+        const list = mega.districts || [];
+        const next = list.includes(d) ? list.filter((x) => x !== d) : [...list, d];
+        setMega({ ...mega, districts: next });
+    };
+
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
             <SheetContent className="sm:max-w-3xl w-full overflow-y-auto" data-testid="avocat-sheet">

@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration_4 frontend re-test after main agent added 4 missing handlers (saveMega, saveInhab, deleteInhab, toggleDistrict, reloadInhabs) in AvocatSheet.jsx. CRITICAL BUG FROM ITER_3 IS FIXED: AvocatSheet now renders all 5 tabs without ReferenceError. Méga tab fully functional end-to-end (district toggle + art486 + save → success toast 'Profil Méga enregistré' confirmed). However, saveMega calls onSaved?.() which CLOSES the sheet immediately after a Méga save, breaking the in-sheet workflow and preventing testing of Inhabilité/Web/Adresses tabs in the same session.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AvocatSheet.jsx saveMega", "issue": "saveMega() calls onSaved?.() which the parent (Avocats.jsx) interprets as a full save — sheet closes after Méga save. Tab-level saves should NOT close the sheet; only persist + show toast. Should call a lighter callback like onUpdated?.() or simply refresh the avocat in place.", "selector": "[data-testid=\"save-mega-btn\"] (AvocatSheet.jsx line ~167)", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Multi-tab edit session", "issue": "After saving Méga, sheet closes. User cannot continue editing Inhabilité/Web/Adresses without re-opening avocat. This breaks expected GestionCardex VB workflow where one fiche stays open across tabs.", "affected_selectors": ["save-mega-btn","tab-inhab","tab-web","tab-adr"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_4.json"],
+  "verified_working": [
+    "Login admin@gestioncardex.qc / Admin2026! → redirects to dashboard",
+    "Avocats list page renders, 1 seeded avocat (AV001 Tremblay Marie) visible",
+    "Open existing avocat → AvocatSheet renders WITHOUT ReferenceError (iter_3 critical bug FIXED)",
+    "All 5 tabs visible: tab-ident, tab-adr, tab-inhab, tab-mega, tab-web",
+    "Méga tab: mega-district-1 checkbox clickable, mega-art486 toggle clickable",
+    "save-mega-btn click → PUT /api/avocats/{id}/mega succeeds → green toast 'Profil Méga enregistré'",
+    "No console errors, no runtime overlay during AvocatSheet render"
+  ],
+  "not_tested_this_iteration": [
+    "Inhabilité tab add/save (blocked by sheet auto-close after Méga save in same session — needs separate session)",
+    "Web tab codeusager/password save (same blocking)",
+    "Adresses tab add/courant toggle (same blocking)",
+    "Rapports page 6 download buttons",
+    "Utilisateurs page (admin) editeur user creation",
+    "Brute-force lockout 429 on /api/auth/login (verify-only)"
+  ],
+  "action_items": [
+    "Remove or change the onSaved?.() call inside saveMega/saveInhab/saveWeb in AvocatSheet.jsx — those tab-level saves should NOT close the sheet. Either omit the callback entirely after these per-tab persistences, or introduce a non-closing onUpdated?.() prop and call that instead. The handleSubmit (Identification tab) is the only handler that should trigger onSaved (to close+refresh list).",
+    "After fix, re-run full test of Inhabilité (add period, date début, save), Web (codeusager + password 6+ chars, save), Adresses (add adresse, mark courant), Rapports (6 download buttons present + clickable), Utilisateurs (create editeur, role badge), and brute-force lockout (5 fails → 429 on test account brute-test@x.com)."
+  ],
+  "critical_code_review_comments": [
+    "AvocatSheet.jsx is now ~524 lines with all 5 tabs in one file. Recommend splitting into AvocatSheetIdent, AvocatSheetAdresses, AvocatSheetInhab, AvocatSheetMega, AvocatSheetWeb sub-components.",
+    "All four save handlers (saveAdresse, saveInhab, saveMega, saveWeb) follow nearly identical try/catch+toast+reload pattern — extract a shared useApiSave(url, payload, successMsg) hook to reduce duplication.",
+    "No error boundary wraps the sheet — a future undefined ref would still tear down the entire sheet content. Wrap with <ErrorBoundary>.",
+    "saveMega/saveInhab use api.put with object as second arg but no explicit content-type — works because axios defaults to JSON, but be explicit for maintainability.",
+    "ESLint passes despite previous undefined refs because no-undef is not catching JSX handler references — tighten with eslint-plugin-react/jsx-no-undef rule."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not retested (was 100% in iter_2)", "frontend": "Méga tab + sheet render 100%; remaining 4 tabs + Rapports + Utilisateurs + brute-force = blocked/not retested"},
+  "test_credentials": "admin@gestioncardex.qc / Admin2026! — confirmed working",
+  "seed_data_creation": "Reset users failed_logins=0 and lockout_until=null in MongoDB before testing. No new seed data created.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter_3's critical 4 ReferenceErrors are FIXED — AvocatSheet renders 5 tabs and Méga tab fully works. New blocker: saveMega/saveInhab/saveWeb call onSaved?.() which closes the sheet. Once main agent removes onSaved?.() from non-Identification tab saves (or introduces onUpdated?.()), re-run full sweep: open avocat → switch through all 5 tabs in one session → Rapports → Utilisateurs CRUD → brute-force /api/auth/login with brute-test@x.com (5 fails should yield 429). DB lockout reset cmd: python3 -c \"from pymongo import MongoClient; import os; MongoClient(os.environ.get('MONGO_URL'))['gestion_cardex']['users'].update_many({},{'$set':{'failed_logins':0,'lockout_until':None}})\"",
+  "rca_of_the_issue": "Root cause of iter_3 ReferenceErrors: handler functions referenced in JSX onClick/onChange were never defined. Main agent's fix (mcp_insert_text after deleteAdresse, lines 138-176) defines reloadInhabs, saveInhab, deleteInhab, saveMega, toggleDistrict using the standard try/api/toast/reload pattern. Verified live: opening avocat AV001 no longer crashes; Méga district toggle + art486 + save → 200 OK + toast. New issue surfaced: saveMega's onSaved?.() side-effect collapses the sheet, indicating onSaved was overloaded for both 'create avocat' (closes) and 'tab save' (should stay open). Mitigation: split callback contract into onCreated (closes sheet) and onUpdated (refreshes parent without closing)."
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api, { formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -10,10 +10,39 @@ import { AdressesTab } from "./avocat/AdressesTab";
 import { InhabTab } from "./avocat/InhabTab";
 import { MegaTab } from "./avocat/MegaTab";
 import { WebTab } from "./avocat/WebTab";
+import { HistoriqueTab } from "./avocat/HistoriqueTab";
+
+// Champs gérés par l'onglet Web (séparés de l'Identification pour les flags dirty)
+const WEB_KEYS = ["codeusager", "factweb", "confweb"];
+
+// Sérialisation stable pour comparer deux états (suffisant pour notre forme de state)
+const stable = (obj) => JSON.stringify(obj, Object.keys(obj || {}).sort());
+
+const pickIdent = (form) => {
+    const { _webpwd, ...rest } = form;
+    const out = { ...rest };
+    WEB_KEYS.forEach((k) => delete out[k]);
+    return out;
+};
+const pickWeb = (form) => {
+    const out = {};
+    WEB_KEYS.forEach((k) => { out[k] = form[k] ?? ""; });
+    return out;
+};
+
+// Petit point coloré pour les onglets « modifiés »
+const DirtyDot = ({ visible, testId }) => visible ? (
+    <span
+        className="ml-2 inline-block w-2 h-2 rounded-full bg-amber-500 align-middle"
+        aria-label="Modifications non enregistrées"
+        data-testid={testId}
+    />
+) : null;
 
 export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     const { user } = useAuth();
     const readOnly = user?.role === "lecteur";
+    const isAdmin = user?.role === "admin";
     const isEditing = !!(avocat && avocat.id);
     const avocatId = avocat?.id;
 
@@ -26,24 +55,30 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     const [mega, setMega] = useState(EMPTY_MEGA);
     const [megaSaving, setMegaSaving] = useState(false);
 
+    // Baselines (= état "propre" après dernier load/save) pour calculer le dirty flag
+    const baselineRef = useRef({ ident: stable(pickIdent(EMPTY_AVOCAT)), web: stable(pickWeb(EMPTY_AVOCAT)), mega: stable(EMPTY_MEGA) });
+
     // Effet 1 — synchronise le formulaire chaque fois que le parent passe un nouvel avocat
     useEffect(() => {
         if (avocat?.id) {
-            setForm({ ...EMPTY_AVOCAT, ...avocat, adresse: { ...EMPTY_AVOCAT.adresse, ...(avocat.adresse || {}) } });
+            const next = { ...EMPTY_AVOCAT, ...avocat, adresse: { ...EMPTY_AVOCAT.adresse, ...(avocat.adresse || {}) } };
+            setForm(next);
+            baselineRef.current.ident = stable(pickIdent(next));
+            baselineRef.current.web = stable(pickWeb(next));
         } else if (avocat) {
             setForm(EMPTY_AVOCAT);
+            baselineRef.current.ident = stable(pickIdent(EMPTY_AVOCAT));
+            baselineRef.current.web = stable(pickWeb(EMPTY_AVOCAT));
         }
     }, [avocat]);
 
-    // Effet 2 — charge les données lourdes (adresses / inhabilités / méga) UNIQUEMENT
-    // quand l'identifiant change. Évite des refetches inutiles après un PUT
-    // quand le parent reassigne `editing = updatedAvocat` (même id, nouvelle référence).
+    // Effet 2 — charge les données lourdes uniquement quand l'identifiant change
     useEffect(() => {
         if (!avocatId) {
             setAdresses([]);
             setInhabs([]);
             setMega(EMPTY_MEGA);
-            // Pré-remplit le code suggéré pour un nouvel avocat
+            baselineRef.current.mega = stable(EMPTY_MEGA);
             if (avocat) {
                 api.get(`/avocats/next-code?type=A`).then(({ data }) => setForm((f) => ({ ...f, code: data.code }))).catch(() => {});
             }
@@ -52,10 +87,25 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         api.get(`/avocats/${avocatId}/adresses`).then(({ data }) => setAdresses(data || [])).catch(() => setAdresses([]));
         api.get(`/avocats/${avocatId}/inhabilites`).then(({ data }) => setInhabs(data || [])).catch(() => setInhabs([]));
         api.get(`/avocats/${avocatId}/mega`).then(({ data }) => {
-            setMega(data && Object.keys(data).length > 0 ? { ...EMPTY_MEGA, ...data } : EMPTY_MEGA);
-        }).catch(() => setMega(EMPTY_MEGA));
+            const next = data && Object.keys(data).length > 0 ? { ...EMPTY_MEGA, ...data } : EMPTY_MEGA;
+            setMega(next);
+            baselineRef.current.mega = stable(next);
+        }).catch(() => {
+            setMega(EMPTY_MEGA);
+            baselineRef.current.mega = stable(EMPTY_MEGA);
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [avocatId]);
+
+    // Calcul des flags dirty
+    const identDirty = useMemo(() => stable(pickIdent(form)) !== baselineRef.current.ident, [form]);
+    const webDirty = useMemo(
+        () => stable(pickWeb(form)) !== baselineRef.current.web || (form._webpwd && form._webpwd.length > 0),
+        [form],
+    );
+    const megaDirty = useMemo(() => stable(mega) !== baselineRef.current.mega, [mega]);
+    const adresseDirty = editAdr !== null;
+    const inhabDirty = editInhab !== null;
 
     const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -77,16 +127,19 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         }
         setSaving(true);
         try {
+            let data;
             if (isEditing) {
                 const { id: _i, created_at: _c, updated_at: _u, usermodif: _m, ...payload } = form;
-                const { data } = await api.put(`/avocats/${avocat.id}`, payload);
+                ({ data } = await api.put(`/avocats/${avocat.id}`, payload));
                 toast.success("Avocat mis à jour");
-                onSaved?.({ updatedAvocat: data });
             } else {
-                const { data } = await api.post("/avocats", form);
+                ({ data } = await api.post("/avocats", form));
                 toast.success("Avocat créé");
-                onSaved?.({ updatedAvocat: data });
             }
+            // Reset baseline ident+web après succès (les valeurs courantes deviennent propres)
+            baselineRef.current.ident = stable(pickIdent(form));
+            baselineRef.current.web = stable(pickWeb(form));
+            onSaved?.({ updatedAvocat: data });
         } catch (err) {
             toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
         } finally {
@@ -158,12 +211,15 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         setMegaSaving(true);
         try {
             await api.put(`/avocats/${avocatId}/mega`, mega);
+            baselineRef.current.mega = stable(mega);
             toast.success("Profil Méga enregistré");
             onSaved?.({ close: false });
         } catch (err) {
             toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
         } finally { setMegaSaving(false); }
     };
+
+    const tabsCount = isAdmin ? 6 : 5;
 
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
@@ -176,16 +232,32 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                 </SheetHeader>
 
                 <Tabs defaultValue="ident" className="mt-6">
-                    <TabsList className="grid grid-cols-5 w-full">
-                        <TabsTrigger value="ident" data-testid="tab-ident">Identification</TabsTrigger>
+                    <TabsList className={`grid w-full ${tabsCount === 6 ? "grid-cols-6" : "grid-cols-5"}`}>
+                        <TabsTrigger value="ident" data-testid="tab-ident">
+                            Identification
+                            <DirtyDot visible={identDirty} testId="dirty-ident" />
+                        </TabsTrigger>
                         <TabsTrigger value="adr" disabled={!isEditing} data-testid="tab-adr">
                             Adresses {adresses.length > 0 && `(${adresses.length})`}
+                            <DirtyDot visible={adresseDirty} testId="dirty-adr" />
                         </TabsTrigger>
                         <TabsTrigger value="inhab" disabled={!isEditing} data-testid="tab-inhab">
                             Inhabilité {inhabs.length > 0 && `(${inhabs.length})`}
+                            <DirtyDot visible={inhabDirty} testId="dirty-inhab" />
                         </TabsTrigger>
-                        <TabsTrigger value="mega" disabled={!isEditing} data-testid="tab-mega">Méga</TabsTrigger>
-                        <TabsTrigger value="web" disabled={!isEditing} data-testid="tab-web">Web</TabsTrigger>
+                        <TabsTrigger value="mega" disabled={!isEditing} data-testid="tab-mega">
+                            Méga
+                            <DirtyDot visible={megaDirty} testId="dirty-mega" />
+                        </TabsTrigger>
+                        <TabsTrigger value="web" disabled={!isEditing} data-testid="tab-web">
+                            Web
+                            <DirtyDot visible={webDirty} testId="dirty-web" />
+                        </TabsTrigger>
+                        {isAdmin && (
+                            <TabsTrigger value="hist" disabled={!isEditing} data-testid="tab-hist">
+                                Historique
+                            </TabsTrigger>
+                        )}
                     </TabsList>
 
                     <TabsContent value="ident" className="mt-6">
@@ -225,6 +297,12 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                             avocatId={avocatId} onSubmit={handleSubmit}
                         />
                     </TabsContent>
+
+                    {isAdmin && (
+                        <TabsContent value="hist" className="mt-6">
+                            <HistoriqueTab avocatId={avocatId} />
+                        </TabsContent>
+                    )}
                 </Tabs>
             </SheetContent>
         </Sheet>

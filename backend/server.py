@@ -142,6 +142,23 @@ def funcValidNoAssSoc(no: str) -> bool:
     return v == int(no[-1])
 
 
+async def _audit(avocat_id: str, action: str, user_email: str, summary: str) -> None:
+    """Trace une modification d'avocat (ou entité enfant) dans audit_log.
+    Best-effort : ne fait jamais échouer l'opération principale.
+    """
+    try:
+        await db.audit_log.insert_one({
+            "id": str(uuid.uuid4()),
+            "avocat_id": avocat_id,
+            "action": action,
+            "user_email": user_email or "système",
+            "summary": summary,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as e:
+        logger.warning(f"audit_log insert failed: {e}")
+
+
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
@@ -352,6 +369,8 @@ async def create_avocat(payload: AvocatCreate, user: dict = Depends(require_role
     })
     await db.avocats.insert_one(doc.copy())
     doc.pop("_id", None)
+    await _audit(doc["id"], "create", user.get("email", ""),
+                 f"Création de la fiche {doc.get('code','')} — {doc.get('nom','')}, {doc.get('prenom','')}")
     return AvocatOut(**doc)
 
 
@@ -367,17 +386,25 @@ async def update_avocat(avocat_id: str, payload: AvocatUpdate, user: dict = Depe
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     doc = await db.avocats.find_one({"id": avocat_id}, {"_id": 0})
+    # Résumé : champs modifiés (hors méta)
+    changed = sorted(k for k in update_doc.keys() if k not in {"updated_at", "usermodif"})
+    if changed:
+        await _audit(avocat_id, "update", user.get("email", ""),
+                     f"Modification : {', '.join(changed)}")
     return _avocat_to_out(doc)
 
 
 @api_router.delete("/avocats/{avocat_id}")
 async def delete_avocat(avocat_id: str, user: dict = Depends(require_role("admin"))):
+    avo = await db.avocats.find_one({"id": avocat_id}, {"_id": 0, "code": 1, "nom": 1, "prenom": 1})
     await db.avocat_adresses.delete_many({"avocat_id": avocat_id})
     await db.avocat_mega.delete_one({"avocat_id": avocat_id})
     await db.avocat_inhab.delete_many({"avocat_id": avocat_id})
     res = await db.avocats.delete_one({"id": avocat_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
+    summary = f"Suppression de {avo.get('code','')} — {avo.get('nom','')}, {avo.get('prenom','')}" if avo else "Suppression"
+    await _audit(avocat_id, "delete", user.get("email", ""), summary)
     return {"ok": True}
 
 
@@ -400,6 +427,8 @@ async def create_adresse(avocat_id: str, payload: Adresse, courant: bool = False
         await db.avocats.update_one({"id": avocat_id}, {"$set": {"adresse": payload.model_dump(), "updated_at": now}})
     await db.avocat_adresses.insert_one(doc.copy())
     doc.pop("_id", None)
+    await _audit(avocat_id, "adresse_create", user.get("email", ""),
+                 f"Adresse ajoutée : {payload.address or '?'}, {payload.ville or ''}".strip(", "))
     return doc
 
 
@@ -414,14 +443,20 @@ async def update_adresse(avocat_id: str, adresse_id: str, payload: Adresse, cour
     res = await db.avocat_adresses.update_one({"id": adresse_id, "avocat_id": avocat_id}, {"$set": update})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Adresse introuvable")
+    await _audit(avocat_id, "adresse_update", user.get("email", ""),
+                 f"Adresse modifiée : {payload.address or '?'}, {payload.ville or ''}".strip(", "))
     return {"ok": True}
 
 
 @api_router.delete("/avocats/{avocat_id}/adresses/{adresse_id}")
 async def delete_adresse(avocat_id: str, adresse_id: str, user: dict = Depends(require_role("admin", "editeur"))):
+    adr = await db.avocat_adresses.find_one({"id": adresse_id, "avocat_id": avocat_id}, {"_id": 0})
     res = await db.avocat_adresses.delete_one({"id": adresse_id, "avocat_id": avocat_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Adresse introuvable")
+    label = f"{(adr or {}).get('address','?')}, {(adr or {}).get('ville','')}" if adr else "—"
+    await _audit(avocat_id, "adresse_delete", user.get("email", ""),
+                 f"Adresse supprimée : {label}".strip(", "))
     return {"ok": True}
 
 
@@ -544,6 +579,8 @@ async def upsert_mega(avocat_id: str, payload: InfoMega, user: dict = Depends(re
         upsert=True,
     )
     await db.avocats.update_one({"id": avocat_id}, {"$set": {"mega": True, "updated_at": now}})
+    await _audit(avocat_id, "mega_update", user.get("email", ""),
+                 f"Profil Méga mis à jour (sectbar={payload.sectbar or '—'}, exp={payload.experience or 0} an(s), districts={len(payload.districts or [])})")
     return {"ok": True}
 
 
@@ -551,6 +588,7 @@ async def upsert_mega(avocat_id: str, payload: InfoMega, user: dict = Depends(re
 async def delete_mega(avocat_id: str, user: dict = Depends(require_role("admin", "editeur"))):
     await db.avocat_mega.delete_one({"avocat_id": avocat_id})
     await db.avocats.update_one({"id": avocat_id}, {"$set": {"mega": False}})
+    await _audit(avocat_id, "mega_delete", user.get("email", ""), "Profil Méga supprimé")
     return {"ok": True}
 
 
@@ -570,6 +608,8 @@ async def create_inhab(avocat_id: str, payload: Inhabilite, user: dict = Depends
     doc.update({"id": str(uuid.uuid4()), "avocat_id": avocat_id, "created_at": now, "updated_at": now})
     await db.avocat_inhab.insert_one(doc.copy())
     doc.pop("_id", None)
+    await _audit(avocat_id, "inhab_create", user.get("email", ""),
+                 f"Période d'inhabilité ajoutée : {payload.datedeb} → {payload.datefin or 'en cours'}")
     return doc
 
 
@@ -580,14 +620,22 @@ async def update_inhab(avocat_id: str, inhab_id: str, payload: Inhabilite, user:
     res = await db.avocat_inhab.update_one({"id": inhab_id, "avocat_id": avocat_id}, {"$set": update})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Période introuvable")
+    await _audit(avocat_id, "inhab_update", user.get("email", ""),
+                 f"Période d'inhabilité modifiée : {payload.datedeb} → {payload.datefin or 'en cours'}")
     return {"ok": True}
 
 
 @api_router.delete("/avocats/{avocat_id}/inhabilites/{inhab_id}")
 async def delete_inhab(avocat_id: str, inhab_id: str, user: dict = Depends(require_role("admin", "editeur"))):
+    item = await db.avocat_inhab.find_one({"id": inhab_id, "avocat_id": avocat_id}, {"_id": 0})
     res = await db.avocat_inhab.delete_one({"id": inhab_id, "avocat_id": avocat_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Période introuvable")
+    summary = (
+        f"Période supprimée : {item.get('datedeb','?')} → {item.get('datefin','en cours')}"
+        if item else "Période d'inhabilité supprimée"
+    )
+    await _audit(avocat_id, "inhab_delete", user.get("email", ""), summary)
     return {"ok": True}
 
 
@@ -600,13 +648,26 @@ async def set_web_password(avocat_id: str, payload: dict, user: dict = Depends(r
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     await db.avocats.update_one({"id": avocat_id}, {"$set": {"web_password_hash": hash_password(pwd), "updated_at": datetime.now(timezone.utc).isoformat()}})
+    await _audit(avocat_id, "web_password_set", user.get("email", ""), "Mot de passe web défini")
     return {"ok": True}
 
 
 @api_router.delete("/avocats/{avocat_id}/web-password")
 async def clear_web_password(avocat_id: str, user: dict = Depends(require_role("admin", "editeur"))):
     await db.avocats.update_one({"id": avocat_id}, {"$unset": {"web_password_hash": ""}})
+    await _audit(avocat_id, "web_password_clear", user.get("email", ""), "Mot de passe web réinitialisé")
     return {"ok": True}
+
+
+# ---------- Audit log ----------
+@api_router.get("/avocats/{avocat_id}/audit")
+async def list_audit(avocat_id: str, user: dict = Depends(require_role("admin")),
+                     limit: int = Query(200, ge=1, le=1000)):
+    """Retourne l'historique des modifications pour un avocat (admin uniquement)."""
+    docs = await db.audit_log.find(
+        {"avocat_id": avocat_id}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(length=limit)
+    return docs
 
 
 # ---------- Mandats CRUD ----------
@@ -806,6 +867,8 @@ async def on_startup():
     await db.avocats.create_index("code", unique=True)
     await db.avocats.create_index("id", unique=True)
     await db.avocats.create_index([("nom", 1), ("prenom", 1)])
+    # Audit log : index composite pour requêtes par avocat triées par date
+    await db.audit_log.create_index([("avocat_id", 1), ("timestamp", -1)])
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gestioncardex.qc").lower()

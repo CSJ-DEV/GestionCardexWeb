@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 7 — P2 dirty-dot indicators on AvocatSheet tabs and P3 audit log (backend + Historique tab). Backend: 10/10 pytest cases pass — 401/403/200 AuthZ matrix on GET /avocats/{id}/audit, all 12 expected actions (create, update, adresse_create/update/delete, mega_update/delete, inhab_create/update/delete, web_password_set/clear) produce well-formed audit entries (id uuid, avocat_id, action, user_email, summary, ISO timestamp), list sorted desc by timestamp, all 6 PDF report endpoints still return 200 + %PDF. Frontend: 10/11 dirty-dot acceptance criteria pass — ident, web, adresse(open/cancel), inhab(open/cancel), mega(edit) and historique tab (admin-only badges/summary/date/email all rendered) all work; one P2 BUG found: dirty-mega does NOT disappear after Méga save, root cause is useMemo dependency on `mega` state but `baselineRef.current.mega` is mutated without triggering a re-render. Sheet stay-open behavior still holds across all sub-tab saves.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AvocatSheet.jsx — saveMega",
+        "issue": "Le point ambré [data-testid='dirty-mega'] reste visible après sauvegarde réussie de l'onglet Méga. La useMemo qui calcule megaDirty dépend de [mega] mais saveMega ne mute que baselineRef.current.mega (un useRef ne déclenche pas de re-render). Toast 'Profil Méga enregistré' s'affiche bien, l'API PUT /mega répond 200, l'audit log enregistre mega_update — mais le dot UI ne se met à jour qu'au prochain changement de mega.",
+        "selector": "[data-testid='dirty-mega']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_audit_log.py",
+    "/app/test_reports/pytest/iteration_7_results.xml"
+  ],
+  "action_items": [
+    "Fix dirty-mega persistence after save: in saveMega, after baselineRef update, force re-render — easiest fix is `setMega((m) => ({ ...m }))` to create a new mega reference and trigger the useMemo recompute. Same defensive pattern recommended for handleSubmit (ident/web) even though current behavior is masked by parent's onSaved → useEffect → setForm cycle resetting form reference.",
+    "(Nice-to-have) Consider replacing useRef baselines with useState so any baseline change triggers React re-render naturally and avoids similar bugs in the future."
+  ],
+  "critical_code_review_comments": [
+    "BUG ROOT CAUSE: AvocatSheet.jsx l.214 `baselineRef.current.mega = stable(mega)` is followed by no state update. The useMemo at l.106 `megaDirty = stable(mega) !== baselineRef.current.mega` won't re-run because [mega] dep didn't change.",
+    "By design, identDirty clears correctly only because parent (Avocats list) calls onSaved and re-passes a fresh avocat prop, which triggers the useEffect at l.62 that calls setForm(next). If a future refactor removes that reload, identification would exhibit the same bug.",
+    "_audit() helper in server.py is well-isolated and best-effort (try/except around the insert). user_email defaults to 'système' if missing. timestamp uses ISO8601 UTC. Sort by timestamp desc + index on (avocat_id,timestamp:-1) ensure scalable retrieval.",
+    "GET /avocats/{id}/audit correctly excludes mongo _id via projection ({\"_id\": 0}). Limit query param capped at 1000.",
+    "HistoriqueTab.jsx is small and clean (~76 lines), good colored badges per action, correct fr-CA date formatting. Cancellation token pattern in useEffect prevents setState on unmounted component.",
+    "Audit log is admin-only via require_role('admin') — confirmed 403 for editor session.",
+    "Recommendation: store audit timestamps as native datetime (not ISO string) for proper indexing/sorting; current string sort happens to work because ISO8601 is lexicographically sortable, but it's a fragile contract."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_audit_log.py (NEW)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10)",
+    "frontend": "91% (10/11 acceptance criteria) — 1 bug on dirty-mega not clearing after save"
+  },
+  "test_credentials": "admin@gestioncardex.qc / Admin2026! (admin) ; TEST_editor_<rand>@gestioncardex.qc / Editeur2026! (created at runtime by test fixture)",
+  "seed_data_creation": "Test fixture creates 1 ephemeral avocat (code TST<rand>, nom AuditTest, prenom Avocat) and 1 editor user (TEST_editor_<rand>@gestioncardex.qc) per pytest module run; the avocat is deleted on teardown. The editor account is left in place (no global delete needed for the 403 test).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Audit log feature fully validated end-to-end at backend (10/10 pytest in /app/test_reports/pytest/iteration_7_results.xml). The only outstanding bug is purely UI-level: in /app/frontend/src/components/AvocatSheet.jsx around line 214, after a successful Méga save the dirty dot remains because baselineRef mutation doesn't trigger React re-render. Suggested fix: `setMega((m) => ({ ...m }))` immediately after `baselineRef.current.mega = stable(mega)` inside saveMega. Once main agent applies the fix, simply re-run the Playwright dirty-mega script (edit sectbar → click 'Enregistrer le profil Méga' → assert dirty-mega is null after toast). All other dirty-dots (ident/web/adresse/inhab) plus the entire Historique tab UX (admin-only visibility, badge per action, fr-CA date, user_email) are confirmed working.",
+  "rca of the issue": "RCA of dirty-mega-not-clearing: useRef-based baselines (baselineRef.current.mega) are mutated synchronously inside saveMega(), but useMemo(megaDirty, [mega]) only recomputes when mega state reference changes. Since saveMega doesn't change mega (the user's edits remain valid), megaDirty's last computed value of `true` (stable(mega) !== old_baseline) is reused — but the new baseline is now equal to mega. Reproduction: open existing avocat → Méga tab → edit sectbar → click Enregistrer le profil Méga → toast confirms save → orange dot persists on Méga tab header. Mitigation: replace baseline ref with useState OR force `setMega({...mega})` after baseline update to invalidate the memo. The same theoretical risk exists for handleSubmit/identDirty but is masked by parent's reload-after-save pattern."
+}

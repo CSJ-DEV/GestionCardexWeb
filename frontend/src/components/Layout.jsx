@@ -1,21 +1,22 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutGrid, Users, LogOut, Scale, Search, ShieldCheck, FileText } from "lucide-react";
+import { LayoutGrid, Users, LogOut, Scale, Search, ShieldCheck, FileText, Database } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-const roleLabel = { admin: "Administrateur", editeur: "Éditeur", lecteur: "Lecteur" };
+const roleLabel = { admin: "Administrateur", ti: "Technicien TI", editeur: "Éditeur", lecteur: "Lecteur" };
 
 export default function Layout() {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
-    const isAdmin = user?.role === "admin";
+    const isAdminLike = user?.role === "admin" || user?.role === "ti";
 
     const navItems = [
         { to: "/", icon: LayoutGrid, label: "Tableau de bord", testId: "nav-dashboard" },
         { to: "/avocats", icon: Users, label: "Avocats", testId: "nav-avocats" },
         { to: "/rapports", icon: FileText, label: "Rapports", testId: "nav-rapports" },
-        ...(isAdmin ? [{ to: "/utilisateurs", icon: ShieldCheck, label: "Utilisateurs", testId: "nav-users" }] : []),
+        ...(isAdminLike ? [{ to: "/utilisateurs", icon: ShieldCheck, label: "Utilisateurs", testId: "nav-users" }] : []),
+        ...(isAdminLike ? [{ to: "/connexions", icon: Database, label: "Connexions", testId: "nav-connexions" }] : []),
     ];
 
     const handleLogout = async () => {

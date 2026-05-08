@@ -107,18 +107,28 @@ class UserCreate(BaseModel):
     email: EmailStr
     name: str
     password: str = Field(..., min_length=6)
-    role: str = Field("editeur", pattern="^(admin|editeur|lecteur)$")
+    role: str = Field("editeur", pattern="^(admin|ti|editeur|lecteur)$")
 
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     password: Optional[str] = None
-    role: Optional[str] = Field(None, pattern="^(admin|editeur|lecteur)$")
+    role: Optional[str] = Field(None, pattern="^(admin|ti|editeur|lecteur)$")
+
+
+# Le rôle TI a tous les droits de l'admin (super-utilisateur technique).
+# Quand un endpoint demande "admin", on autorise aussi "ti" automatiquement.
+ADMIN_LIKE = {"admin", "ti"}
 
 
 def require_role(*allowed_roles):
+    # Auto-promotion : si "admin" est listé, on autorise aussi "ti"
+    expanded = set(allowed_roles)
+    if "admin" in expanded:
+        expanded.add("ti")
+
     async def checker(user: dict = Depends(get_current_user)) -> dict:
-        if user.get("role") not in allowed_roles:
+        if user.get("role") not in expanded:
             raise HTTPException(status_code=403, detail="Accès refusé")
         return user
     return checker
@@ -574,6 +584,111 @@ async def delete_user(user_id: str, user: dict = Depends(require_role("admin")))
     return {"ok": True}
 
 
+# ---------- Connexions (admin + ti) ----------
+from connexions import (  # noqa: E402
+    ConnexionCreate, ConnexionUpdate, _to_out,
+    encrypt_password, decrypt_password, test_connection,
+)
+
+
+@api_router.get("/connexions")
+async def list_connexions(user: dict = Depends(require_role("admin"))):
+    docs = await db.connexions.find({}, {"_id": 0}).sort("name", 1).to_list(length=200)
+    return [_to_out(d).model_dump() for d in docs]
+
+
+@api_router.get("/connexions/{conn_id}")
+async def get_connexion(conn_id: str, user: dict = Depends(require_role("admin"))):
+    doc = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Connexion introuvable")
+    return _to_out(doc).model_dump()
+
+
+@api_router.post("/connexions", status_code=201)
+async def create_connexion(payload: ConnexionCreate, user: dict = Depends(require_role("admin"))):
+    now = datetime.now(timezone.utc).isoformat()
+    doc = payload.model_dump()
+    pwd = doc.pop("password", "") or ""
+    doc.update({
+        "id": str(uuid.uuid4()),
+        "password_enc": encrypt_password(pwd) if pwd else "",
+        "is_primary": False,
+        "created_at": now,
+        "updated_at": now,
+    })
+    await db.connexions.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return _to_out(doc).model_dump()
+
+
+@api_router.put("/connexions/{conn_id}")
+async def update_connexion(conn_id: str, payload: ConnexionUpdate, user: dict = Depends(require_role("admin"))):
+    existing = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Connexion introuvable")
+    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    # Protection : on n'écrase jamais la connexion primaire (lecture seule)
+    if existing.get("is_primary"):
+        # On autorise uniquement la mise à jour de la description sur la primaire
+        update = {k: v for k, v in update.items() if k == "description"}
+        if not update:
+            raise HTTPException(status_code=403, detail="La connexion principale est en lecture seule (sauf description)")
+    pwd = update.pop("password", None)
+    if pwd:  # nouveau mot de passe non vide → on chiffre
+        update["password_enc"] = encrypt_password(pwd)
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.connexions.update_one({"id": conn_id}, {"$set": update})
+    doc = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
+    return _to_out(doc).model_dump()
+
+
+@api_router.delete("/connexions/{conn_id}")
+async def delete_connexion(conn_id: str, user: dict = Depends(require_role("admin"))):
+    existing = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Connexion introuvable")
+    if existing.get("is_primary"):
+        raise HTTPException(status_code=403, detail="La connexion principale ne peut pas être supprimée")
+    await db.connexions.delete_one({"id": conn_id})
+    return {"ok": True}
+
+
+@api_router.post("/connexions/{conn_id}/test")
+async def test_existing_connexion(conn_id: str, user: dict = Depends(require_role("admin"))):
+    """Teste une connexion stockée (utilise le mot de passe déchiffré)."""
+    doc = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Connexion introuvable")
+    pwd = decrypt_password(doc.get("password_enc", ""))
+    return test_connection(
+        c_type=doc.get("type"),
+        server=doc.get("server", ""),
+        port=doc.get("port"),
+        user=doc.get("user", ""),
+        password=pwd,
+        database=doc.get("database", ""),
+    )
+
+
+class ConnexionTestPayload(BaseModel):
+    type: str
+    server: str
+    port: Optional[int] = None
+    user: Optional[str] = ""
+    password: Optional[str] = ""
+    database: Optional[str] = ""
+
+
+@api_router.post("/connexions/test")
+async def test_arbitrary_connexion(payload: ConnexionTestPayload, user: dict = Depends(require_role("admin"))):
+    """Teste un set de credentials avant même de l'enregistrer."""
+    return test_connection(
+        c_type=payload.type, server=payload.server, port=payload.port,
+        user=payload.user or "", password=payload.password or "", database=payload.database or "",
+    )
+
+
 class InfoMega(BaseModel):
     model_config = ConfigDict(extra="ignore")
     sectbar: Optional[str] = ""
@@ -971,6 +1086,43 @@ async def on_startup():
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
         logger.info(f"Mot de passe admin mis à jour: {admin_email}")
+
+    # Seed compte TI
+    ti_email = os.environ.get("TI_EMAIL", "ti@gestioncardex.qc").lower()
+    ti_password = os.environ.get("TI_PASSWORD", "Ti2026!")
+    ti_existing = await db.users.find_one({"email": ti_email})
+    if not ti_existing:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()),
+            "email": ti_email,
+            "password_hash": hash_password(ti_password),
+            "name": "Technicien TI",
+            "role": "ti",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info(f"Compte TI créé: {ti_email}")
+
+    # Seed connexions : entrée primaire en lecture seule pour MONGO_URL courant
+    await db.connexions.create_index("id", unique=True)
+    primary_existing = await db.connexions.find_one({"is_primary": True})
+    if not primary_existing:
+        from connexions import parse_mongo_url
+        parsed = parse_mongo_url(os.environ.get("MONGO_URL", ""))
+        await db.connexions.insert_one({
+            "id": str(uuid.uuid4()),
+            "name": "MongoDB principal (en service)",
+            "type": "mongodb",
+            "server": parsed["server"],
+            "port": parsed["port"],
+            "user": parsed["user"],
+            "database": os.environ.get("DB_NAME", parsed["database"]),
+            "description": "Connexion utilisée actuellement par l'application — lecture seule.",
+            "password_enc": "",
+            "is_primary": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info("Connexion primaire seeded")
 
 
 @app.on_event("shutdown")

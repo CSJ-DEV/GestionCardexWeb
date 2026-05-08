@@ -8,6 +8,7 @@ import Dashboard from "@/pages/Dashboard";
 import AvocatsList from "@/pages/AvocatsList";
 import Rapports from "@/pages/Rapports";
 import Utilisateurs from "@/pages/Utilisateurs";
+import Connexions from "@/pages/Connexions";
 import { Toaster } from "@/components/ui/sonner";
 
 function App() {
@@ -29,6 +30,7 @@ function App() {
                             <Route path="avocats" element={<AvocatsList />} />
                             <Route path="rapports" element={<Rapports />} />
                             <Route path="utilisateurs" element={<Utilisateurs />} />
+                            <Route path="connexions" element={<Connexions />} />
                         </Route>
                     </Routes>
                 </BrowserRouter>

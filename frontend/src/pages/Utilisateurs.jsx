@@ -12,8 +12,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 
 const empty = { email: "", name: "", password: "", role: "editeur" };
-const roleLabel = { admin: "Administrateur", editeur: "Éditeur", lecteur: "Lecteur" };
-const roleBadge = { admin: "bg-violet-100 text-violet-700", editeur: "bg-blue-100 text-blue-700", lecteur: "bg-slate-100 text-slate-700" };
+const roleLabel = { admin: "Administrateur", ti: "Technicien TI", editeur: "Éditeur", lecteur: "Lecteur" };
+const roleBadge = { admin: "bg-violet-100 text-violet-700", ti: "bg-orange-100 text-orange-700", editeur: "bg-blue-100 text-blue-700", lecteur: "bg-slate-100 text-slate-700" };
 
 export default function Utilisateurs() {
     const { user: me } = useAuth();
@@ -131,6 +131,7 @@ export default function Utilisateurs() {
                                 <SelectTrigger className="rounded-md" data-testid="user-select-role"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="admin">Administrateur</SelectItem>
+                                    <SelectItem value="ti">Technicien TI (admin + connexions)</SelectItem>
                                     <SelectItem value="editeur">Éditeur</SelectItem>
                                     <SelectItem value="lecteur">Lecteur (lecture seule)</SelectItem>
                                 </SelectContent>

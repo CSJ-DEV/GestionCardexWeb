@@ -287,6 +287,31 @@ async def logout(response: Response):
     return {"ok": True}
 
 
+@api_router.post("/auth/refresh", response_model=UserOut)
+async def refresh_token_endpoint(request: Request, response: Response):
+    """Re-émet un access_token (et rotate le refresh_token) à partir du refresh cookie.
+    Utilisé par l'intercepteur frontend pour gérer l'expiration silencieuse du JWT.
+    """
+    token = request.cookies.get("refresh_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Aucun jeton de rafraîchissement")
+    try:
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Type de jeton invalide")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expirée — veuillez vous reconnecter")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Jeton invalide")
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+    new_access = create_access_token(user["id"], user["email"])
+    new_refresh = create_refresh_token(user["id"])
+    set_auth_cookies(response, new_access, new_refresh)
+    return UserOut(id=user["id"], email=user["email"], name=user.get("name", ""), role=user.get("role", "admin"))
+
+
 @api_router.get("/auth/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)):
     return UserOut(id=user["id"], email=user["email"], name=user.get("name", ""), role=user.get("role", "admin"))

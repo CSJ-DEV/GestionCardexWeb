@@ -112,3 +112,22 @@ Voir `/app/memory/test_credentials.md`
 - Lint frontend ✅
 
 **Phase 3b restante** : Rapports PDF (Registre97 + 4 listes) — bloqué tant que je n'ai pas de PDF d'exemple ou descriptions de colonnes pour chaque .rpt.
+
+## Phase 3b — Rapports PDF (PLANIFIÉ — non implémenté)
+**5 PDF d'exemple reçus** : Registre97, ListeDetBar, ListeDetDist, ListeDetReg, ListeSom
+
+### Découverte critique
+Registre97 nécessite une **entité Mandats** (table `tMandats` SQL) absente du modèle actuel.
+Colonnes : Nom avocat, Nom requérant, Date ordonnance, Date émission, # Mandat
+Groupé par : Avocats Pratique Privée / Permanent
+Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
+
+### Plan prochaine session
+1. **P0** Module Mandats : modèle + CRUD `/api/mandats` (avocat_id, requerant, article, dates, numero, groupe)
+2. **P0** Endpoint PDF ReportLab `/api/rapports/registre97?date_debut=&date_fin=`
+3. **P1** 4 autres endpoints PDF (ListeDetBar/Dist/Reg, ListeSom) — analyser leur structure (PDF en main)
+4. **P1** Page frontend `/rapports` avec sélecteur + filtres dates + bouton « Générer PDF »
+5. **P2** Installer reportlab : `pip install reportlab && pip freeze > requirements.txt`
+
+### URLs PDF d'exemple (pour référence)
+- Registre97.pdf, ListeDetBar.pdf, ListeDetDist.pdf, ListeDetReg.pdf, ListeSom.pdf — disponibles via customer-assets.emergentagent.com (job_cardex-migrate)

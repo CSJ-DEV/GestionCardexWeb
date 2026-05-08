@@ -14,6 +14,15 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, Star } from "lucide-react";
 import { toast } from "sonner";
 
+const QC_DISTRICTS = [
+    { id: 1, nom: "Montréal" }, { id: 2, nom: "Québec" }, { id: 3, nom: "Laval" },
+    { id: 4, nom: "Longueuil" }, { id: 5, nom: "Gatineau" }, { id: 6, nom: "Sherbrooke" },
+    { id: 7, nom: "Trois-Rivières" }, { id: 8, nom: "Saguenay" }, { id: 9, nom: "Lévis" },
+    { id: 10, nom: "Terrebonne" }, { id: 11, nom: "Saint-Jean-sur-Richelieu" }, { id: 12, nom: "Repentigny" },
+    { id: 13, nom: "Drummondville" }, { id: 14, nom: "Saint-Jérôme" }, { id: 15, nom: "Granby" },
+    { id: 16, nom: "Beauharnois" }, { id: 17, nom: "Mirabel" }, { id: 18, nom: "Joliette" },
+];
+
 const emptyAvocat = {
     code: "", type_code: "A", nom: "", prenom: "",
     sectbar: "", annee_barreau: "", codebar: "", nas: "", neq: "", taxes: "",

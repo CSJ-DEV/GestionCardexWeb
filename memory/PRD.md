@@ -148,3 +148,21 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - 4 autres rapports PDF : ListeDetBar, ListeDetDist, ListeDetReg, ListeSom (PDF reçus mais non analysés)
 - Registre98 (PDF reçu mais non implémenté)
 - Tests E2E par rôles avec testing_agent
+
+## Phase 3c — 5 rapports PDF + Tests E2E (2026-05-08)
+**Implémenté** :
+- Fonction générique `_build_avocat_list_pdf(title, subtitle, columns, rows_par_groupe)` réutilisée
+- 5 endpoints PDF : `/rapports/registre98`, `/liste-det-bar`, `/liste-det-dist`, `/liste-det-reg`, `/liste-som`
+- Tous validés via curl ✅ (200 OK, ~2KB chacun, signature %PDF)
+- Page Rapports : 5 boutons supplémentaires de téléchargement
+- **Backend testing : 27/27 tests passent (100%)** — testing_agent v3 complet
+
+**Bug critique trouvé + fix** :
+- `QC_DISTRICTS` dans AvocatSheet.jsx était référencé sans être défini → crash React → tous les onglets bloqués
+- Fix : déclaration `const QC_DISTRICTS = [...]` au top du fichier (18 districts du Québec)
+- Lint OK après fix
+
+**Notes du testing agent (P3 — backlog)** :
+- Migrer `@app.on_event` vers FastAPI `lifespan()`
+- Ajouter brute-force lockout sur /auth/login (5 essais)
+- Cookie `secure` pilotable via `COOKIE_SECURE` env pour prod

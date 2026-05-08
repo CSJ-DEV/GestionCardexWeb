@@ -69,9 +69,16 @@ export default function AvocatsList() {
         return () => clearTimeout(id);
     }, [fetchData]);
 
-    const handleSaved = () => {
-        setEditing(null);
+    // close=true → ferme le Sheet (annulation, ou choix explicite)
+    // updatedAvocat fourni → garde le Sheet ouvert, mais bascule sur la fiche persistée (utile après création)
+    // sinon → garde le Sheet ouvert tel quel et rafraîchit la liste en arrière-plan
+    const handleSaved = ({ close = false, updatedAvocat = null } = {}) => {
         fetchData();
+        if (close) {
+            setEditing(null);
+        } else if (updatedAvocat) {
+            setEditing(updatedAvocat);
+        }
     };
 
     const handleDelete = async () => {

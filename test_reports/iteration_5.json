@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend regression test of AvocatSheet auto-close bug fix. All 8 acceptance criteria from review_request validated against the live preview URL with admin credentials. The Sheet now correctly stays open after every sub-tab save (Adresses, Méga, Inhabilité, Web), correctly stays open after Identification update, switches to edit mode after creation (tab-adr becomes enabled), correctly closes via Annuler, and existing Méga + Inhabilités data are now hydrated from the backend on open.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_5.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AvocatSheet.jsx (~540 lines) is approaching the 700-line guidance; consider splitting per tab (AdressesTab, MegaTab, InhabTab, WebTab) for maintainability.",
+    "Web tab 'Annuler' (Adresse editor) shares the label 'Annuler' with the Identification cancel button — fine functionally but worth distinct data-testids for clarity.",
+    "saveInhab passes no {close:false} — currently parent defaults close=false so it works, but explicit intent (like saveAdresse/saveMega) would be more robust against future signature changes.",
+    "useEffect on `avocat` re-fetches mega/inhab/adresses every time the parent passes a new object reference (e.g., after handleSaved sets editing=updatedAvocat). It works but causes redundant network calls; consider keying on avocat?.id."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% (8/8 acceptance criteria)"},
+  "test_credentials": "admin@gestioncardex.qc / Admin2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created 1 test avocat 'TESTSHEET5299 / Sheet' (code A0001) during creation-flow test. Existing 'Tremblay / Marie' (AV001) was used for sub-tab save tests; one address ('123 rue Test'), one inhabilité (2025-01-01 → 2025-12-31), méga sectbar=Civil exp=10, and codeusager=testuser01 were added to it.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug P0 (AvocatSheet auto-close on sub-tab save) is FULLY FIXED and verified. Test results: TEST1 Adresses save→open True; TEST2 Mega save→open True; TEST3 Inhab save→open True; TEST4 Ident update→open True; TEST5 Web save→open True; TEST6 Annuler→closed (False) correct; TEST7 Create→open True and tab-adr.data-disabled=null (enabled); TEST8 reopen mega-sectbar='Civil' experience='10' and inhab rows count=2 (data correctly hydrated from backend GET /avocats/{id}/mega and /inhabilites). Existing seed data may now contain extra TEST adresse/inhab on AV001 — clean up if needed before next regression. Backend testing was explicitly skipped per the request.",
+  "rca of the issue": "Original bug: every save in sub-tabs called onSaved() which set editing=null in parent, closing the Sheet. Fix verified: (a) AvocatsList.handleSaved now accepts {close, updatedAvocat} and only closes when close=true; (b) saveAdresse/saveMega pass {close:false}; (c) handleSubmit (create+update) passes {updatedAvocat:data} to keep Sheet open and switch to edit mode (tab-adr becomes enabled); (d) useEffect on mount fetches mega + inhabilites + adresses so existing data is no longer overwritten by defaults. All four code paths verified end-to-end on the live preview URL."
+}

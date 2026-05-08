@@ -57,10 +57,21 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     useEffect(() => {
         if (avocat?.id) {
             setForm({ ...emptyAvocat, ...avocat, adresse: { ...emptyAvocat.adresse, ...(avocat.adresse || {}) } });
-            api.get(`/avocats/${avocat.id}/adresses`).then(({ data }) => setAdresses(data || []));
+            // Charge les données dépendantes en parallèle (adresses + inhabilités + profil méga)
+            api.get(`/avocats/${avocat.id}/adresses`).then(({ data }) => setAdresses(data || [])).catch(() => setAdresses([]));
+            api.get(`/avocats/${avocat.id}/inhabilites`).then(({ data }) => setInhabs(data || [])).catch(() => setInhabs([]));
+            api.get(`/avocats/${avocat.id}/mega`).then(({ data }) => {
+                if (data && Object.keys(data).length > 0) {
+                    setMega((m) => ({ ...m, ...data }));
+                } else {
+                    setMega({ sectbar: "", francais: true, anglais: false, autres: "", experience: 0, details: "", art486: false, art672: false, art684: false, commentaire: "", dateinsc: "", districts: [], tous_districts: false });
+                }
+            }).catch(() => { /* profil non encore créé */ });
         } else if (avocat) {
             setForm(emptyAvocat);
             setAdresses([]);
+            setInhabs([]);
+            setMega({ sectbar: "", francais: true, anglais: false, autres: "", experience: 0, details: "", art486: false, art672: false, art684: false, commentaire: "", dateinsc: "", districts: [], tous_districts: false });
             // Auto-fetch suggested code
             api.get(`/avocats/next-code?type=A`).then(({ data }) => setForm((f) => ({ ...f, code: data.code })));
         }
@@ -88,13 +99,16 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         try {
             if (isEditing) {
                 const { id: _i, created_at: _c, updated_at: _u, usermodif: _m, ...payload } = form;
-                await api.put(`/avocats/${avocat.id}`, payload);
+                const { data } = await api.put(`/avocats/${avocat.id}`, payload);
                 toast.success("Avocat mis à jour");
+                // Garde le Sheet ouvert et resynchronise la fiche affichée
+                onSaved?.({ updatedAvocat: data });
             } else {
-                await api.post("/avocats", form);
+                const { data } = await api.post("/avocats", form);
                 toast.success("Avocat créé");
+                // Bascule vers le mode édition pour débloquer les onglets Adresses / Méga / etc.
+                onSaved?.({ updatedAvocat: data });
             }
-            onSaved?.();
         } catch (err) {
             toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
         } finally {
@@ -119,7 +133,8 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
             toast.success("Adresse enregistrée");
             setEditAdr(null);
             reloadAdresses();
-            onSaved?.();
+            // Rafraîchit la liste en arrière-plan sans fermer le Sheet
+            onSaved?.({ close: false });
         } catch (err) {
             toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
         }
@@ -164,7 +179,8 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         try {
             await api.put(`/avocats/${avocat.id}/mega`, mega);
             toast.success("Profil Méga enregistré");
-            onSaved?.();
+            // Garde le Sheet ouvert (ré-actualise simplement la liste pour le badge Méga)
+            onSaved?.({ close: false });
         } catch (err) {
             toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
         } finally { setMegaSaving(false); }

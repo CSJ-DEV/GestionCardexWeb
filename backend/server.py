@@ -658,197 +658,126 @@ async def delete_mandat(mandat_id: str, user: dict = Depends(require_role("admin
 
 
 # ---------- Rapports PDF ----------
-def _build_registre97_pdf(date_debut: str, date_fin: str, rows_par_article: dict) -> bytes:
-    from reportlab.lib.pagesizes import letter, landscape
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
-    from reportlab.lib import colors
-    from io import BytesIO
-    buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=letter, leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.5 * cm, bottomMargin=1.5 * cm)
-    styles = getSampleStyleSheet()
-    h_title = ParagraphStyle("h_title", parent=styles["Heading1"], fontSize=14, alignment=1)
-    h_sub = ParagraphStyle("h_sub", parent=styles["Normal"], fontSize=10, alignment=1, spaceAfter=12)
-    h_section = ParagraphStyle("h_section", parent=styles["Heading2"], fontSize=12, spaceBefore=14, spaceAfter=6, textColor=colors.HexColor("#0033A0"))
-    h_group = ParagraphStyle("h_group", parent=styles["Normal"], fontSize=10, fontName="Helvetica-Bold", spaceBefore=8, spaceAfter=4)
-    n = ParagraphStyle("n", parent=styles["Normal"], fontSize=8)
-    elements = []
-    elements.append(Paragraph("Commission des services juridiques", h_title))
-    elements.append(Paragraph("AIDE JURIDIQUE", h_sub))
-    elements.append(Paragraph(f"<b>Registre tenu en vertu de l'article 97</b><br/>du Règlement sur l'aide juridique L.R.Q. chapitre A-14", n))
-    elements.append(Paragraph(f"Période du {date_debut} au {date_fin}", n))
-    elements.append(Spacer(1, 0.3 * cm))
-    headers = ["Nom avocat", "Nom requérant", "Date ordonnance", "Date émission", "Mandat"]
-    for article in ["486.3", "486.7"]:
-        elements.append(Paragraph(f"Article {article} C.cr.", h_section))
-        rows = rows_par_article.get(article, [])
-        groups = {}
-        for r in rows:
-            groups.setdefault(r.get("groupe", "Pratique Privée"), []).append(r)
-        article_total = 0
-        for grp, items in groups.items():
-            elements.append(Paragraph(f"Avocats {grp}", h_group))
-            data = [headers] + [[r.get("avocat_nom", ""), r.get("requerant", ""), r.get("date_ordonnance", ""), r.get("date_emission", ""), r.get("numero", "")] for r in items]
-            tbl = Table(data, colWidths=[5 * cm, 5 * cm, 3 * cm, 2.5 * cm, 2.5 * cm])
-            tbl.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0033A0")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-            ]))
-            elements.append(tbl)
-            elements.append(Paragraph(f"<i>Sous-total Avocats {grp} : {len(items)}</i>", n))
-            article_total += len(items)
-        elements.append(Paragraph(f"<b>Total Article {article} C.cr. : {article_total}</b>", h_group))
-    doc.build(elements)
-    return buf.getvalue()
+from pdf_reports import (
+    build_registre97,
+    build_registre98,
+    build_liste_det_bar,
+    build_liste_det_dist,
+    build_liste_det_reg,
+    build_liste_som,
+)
 
 
 @api_router.get("/rapports/registre97")
 async def rapport_registre97(date_debut: str, date_fin: str, user: dict = Depends(get_current_user)):
-    rows_par_article = {}
     cursor = db.mandats.find({"date_ordonnance": {"$gte": date_debut, "$lte": date_fin}}, {"_id": 0})
-    avo_cache = {}
+    avo_cache: dict[str, dict] = {}
+    rows_par_article: dict[str, list[dict]] = {}
     for m in await cursor.to_list(length=10000):
         if m["avocat_id"] not in avo_cache:
-            avo = await db.avocats.find_one({"id": m["avocat_id"]}, {"_id": 0, "nom": 1, "prenom": 1})
-            avo_cache[m["avocat_id"]] = f"{avo['nom']}, {avo['prenom']}" if avo else "—"
-        m["avocat_nom"] = avo_cache[m["avocat_id"]]
+            a = await db.avocats.find_one({"id": m["avocat_id"]}, {"_id": 0, "nom": 1, "prenom": 1, "code": 1, "type_code": 1})
+            avo_cache[m["avocat_id"]] = a or {}
+        a = avo_cache[m["avocat_id"]]
+        m["avocat_nom"] = f"{a.get('code','')}  {a.get('nom','')}, {a.get('prenom','')}".strip() if a else "—"
+        m["avocat_type"] = a.get("type_code", "P") if a else "P"
         rows_par_article.setdefault(m.get("article", "486.3"), []).append(m)
-    pdf = _build_registre97_pdf(date_debut, date_fin, rows_par_article)
+    pdf = build_registre97(date_debut, date_fin, rows_par_article)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
                              headers={"Content-Disposition": f'attachment; filename="registre97_{date_debut}_{date_fin}.pdf"'})
 
 
-def _build_avocat_list_pdf(title: str, subtitle: str, columns: list, rows_par_groupe: dict) -> bytes:
-    from reportlab.lib.pagesizes import letter
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.lib import colors
-    from io import BytesIO
-    buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=letter, leftMargin=1.5*cm, rightMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
-    styles = getSampleStyleSheet()
-    h_t = ParagraphStyle("t", parent=styles["Heading1"], fontSize=14, alignment=1)
-    h_s = ParagraphStyle("s", parent=styles["Normal"], fontSize=10, alignment=1, spaceAfter=12)
-    h_g = ParagraphStyle("g", parent=styles["Heading2"], fontSize=11, spaceBefore=12, spaceAfter=4, textColor=colors.HexColor("#0033A0"))
-    n = ParagraphStyle("n", parent=styles["Normal"], fontSize=8)
-    el = [Paragraph("Commission des services juridiques", h_t), Paragraph(subtitle, h_s),
-          Paragraph(f"<b>{title}</b>", n), Spacer(1, 0.3*cm)]
-    headers = [c["label"] for c in columns]
-    keys = [c["key"] for c in columns]
-    grand = 0
-    for grp, items in rows_par_groupe.items():
-        el.append(Paragraph(f"{grp} ({len(items)})", h_g))
-        data = [headers] + [[str(it.get(k, "") or "") for k in keys] for it in items]
-        tbl = Table(data, repeatRows=1)
-        tbl.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#0033A0")),
-            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE", (0,0), (-1,-1), 8),
-            ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
-            ("VALIGN", (0,0), (-1,-1), "TOP"),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F8FAFC")]),
-        ]))
-        el.append(tbl)
-        grand += len(items)
-    el.append(Spacer(1, 0.4*cm))
-    el.append(Paragraph(f"<b>Total général : {grand} avocat(s)</b>", h_g))
-    doc.build(el)
-    return buf.getvalue()
+@api_router.get("/rapports/registre98")
+async def rapport_registre98(date_debut: str, date_fin: str, user: dict = Depends(get_current_user)):
+    cursor = db.mandats.find({"date_ordonnance": {"$gte": date_debut, "$lte": date_fin}}, {"_id": 0})
+    avo_cache: dict[str, dict] = {}
+    rows_par_article: dict[str, list[dict]] = {}
+    for m in await cursor.to_list(length=20000):
+        if m["avocat_id"] not in avo_cache:
+            a = await db.avocats.find_one({"id": m["avocat_id"]}, {"_id": 0, "nom": 1, "prenom": 1, "code": 1})
+            avo_cache[m["avocat_id"]] = a or {}
+        a = avo_cache[m["avocat_id"]]
+        m["avocat_code"] = a.get("code", "") if a else ""
+        m["avocat_nom"] = f"{a.get('nom','')}, {a.get('prenom','')}" if a else ""
+        rows_par_article.setdefault(m.get("article", "486.3"), []).append(m)
+    pdf = build_registre98(date_debut, date_fin, rows_par_article)
+    return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="registre98_{date_debut}_{date_fin}.pdf"'})
 
 
-async def _avocats_with_adresse(query: dict = None) -> list:
-    docs = await db.avocats.find(query or {}, {"_id": 0}).sort([("nom", 1), ("prenom", 1)]).to_list(length=10000)
-    return docs
+async def _avocats_actifs_with_mega() -> list[dict]:
+    """Charge les avocats actifs + leur fiche méga (jointure manuelle)."""
+    avos = await db.avocats.find({"actif": True}, {"_id": 0}).sort([("nom", 1), ("prenom", 1)]).to_list(length=10000)
+    if not avos:
+        return []
+    ids = [a["id"] for a in avos]
+    megas = await db.avocat_mega.find({"avocat_id": {"$in": ids}}, {"_id": 0}).to_list(length=10000)
+    by_id = {m["avocat_id"]: m for m in megas}
+    for a in avos:
+        a["_mega"] = by_id.get(a["id"]) or {}
+    return avos
 
 
 @api_router.get("/rapports/liste-det-bar")
-async def rap_listedetbar(user: dict = Depends(get_current_user)):
-    avos = await _avocats_with_adresse({"actif": True})
-    grp = {}
+async def rapport_liste_det_bar(user: dict = Depends(get_current_user)):
+    avos = await _avocats_actifs_with_mega()
+    groups: dict[str, list[dict]] = {}
     for a in avos:
         key = a.get("sectbar") or "(Sans section)"
-        a["ville"] = (a.get("adresse") or {}).get("ville", "")
-        a["tel"] = (a.get("adresse") or {}).get("telephone", "")
-        grp.setdefault(key, []).append(a)
-    pdf = _build_avocat_list_pdf("Liste détaillée par Section Barreau", "Avocats actifs",
-                                 [{"key":"code","label":"Code"},{"key":"nom","label":"Nom"},{"key":"prenom","label":"Prénom"},
-                                  {"key":"ville","label":"Ville"},{"key":"tel","label":"Téléphone"}], grp)
+        groups.setdefault(key, []).append(a)
+    # Ordre alphabétique des sections
+    groups = {k: groups[k] for k in sorted(groups.keys())}
+    pdf = build_liste_det_bar(groups)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
                              headers={"Content-Disposition": 'attachment; filename="liste_det_bar.pdf"'})
 
 
 @api_router.get("/rapports/liste-det-dist")
-async def rap_listedetdist(user: dict = Depends(get_current_user)):
-    avos = await _avocats_with_adresse({"actif": True})
-    grp = {}
+async def rapport_liste_det_dist(user: dict = Depends(get_current_user)):
+    avos = await _avocats_actifs_with_mega()
+    groups: dict[str, list[dict]] = {}
     for a in avos:
-        key = (a.get("adresse") or {}).get("ville") or "(Sans district)"
-        a["tel"] = (a.get("adresse") or {}).get("telephone", "")
-        a["email"] = (a.get("adresse") or {}).get("email", "")
-        grp.setdefault(key, []).append(a)
-    pdf = _build_avocat_list_pdf("Liste détaillée par District", "Avocats actifs",
-                                 [{"key":"code","label":"Code"},{"key":"nom","label":"Nom"},{"key":"prenom","label":"Prénom"},
-                                  {"key":"tel","label":"Téléphone"},{"key":"email","label":"Courriel"}], grp)
+        ville = (a.get("adresse") or {}).get("ville") or "(Sans district)"
+        groups.setdefault(ville, []).append(a)
+    groups = {k: groups[k] for k in sorted(groups.keys())}
+    pdf = build_liste_det_dist(groups)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
                              headers={"Content-Disposition": 'attachment; filename="liste_det_dist.pdf"'})
 
 
 @api_router.get("/rapports/liste-det-reg")
-async def rap_listedetreg(user: dict = Depends(get_current_user)):
-    avos = await _avocats_with_adresse({})
-    grp = {}
+async def rapport_liste_det_reg(user: dict = Depends(get_current_user)):
+    # Regroupement par décennie d'inscription au barreau (équivalent VB legacy)
+    avos = await db.avocats.find({}, {"_id": 0}).sort([("annee_barreau", 1), ("nom", 1)]).to_list(length=10000)
+    ids = [a["id"] for a in avos]
+    megas = await db.avocat_mega.find({"avocat_id": {"$in": ids}}, {"_id": 0}).to_list(length=10000)
+    by_id = {m["avocat_id"]: m for m in megas}
+    groups: dict[str, list[dict]] = {}
     for a in avos:
-        key = "Actifs" if a.get("actif") else "Passifs"
-        a["ville"] = (a.get("adresse") or {}).get("ville", "")
-        grp.setdefault(key, []).append(a)
-    pdf = _build_avocat_list_pdf("Liste détaillée du Registre", "Tous les avocats",
-                                 [{"key":"code","label":"Code"},{"key":"nom","label":"Nom"},{"key":"prenom","label":"Prénom"},
-                                  {"key":"sectbar","label":"Section"},{"key":"ville","label":"Ville"}], grp)
+        a["_mega"] = by_id.get(a["id"]) or {}
+        annee = a.get("annee_barreau") or ""
+        if annee and str(annee).isdigit():
+            decade = (int(annee) // 10) * 10
+            key = f"Année barreau {decade}"
+        else:
+            key = "Année barreau (n.d.)"
+        groups.setdefault(key, []).append(a)
+    groups = {k: groups[k] for k in sorted(groups.keys())}
+    pdf = build_liste_det_reg(groups)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
                              headers={"Content-Disposition": 'attachment; filename="liste_det_reg.pdf"'})
 
 
 @api_router.get("/rapports/liste-som")
-async def rap_listesom(user: dict = Depends(get_current_user)):
-    avos = await _avocats_with_adresse({"actif": True})
-    grp = {"Actifs": avos}
-    pdf = _build_avocat_list_pdf("Liste sommaire", "Avocats actifs",
-                                 [{"key":"code","label":"Code"},{"key":"nom","label":"Nom"},{"key":"prenom","label":"Prénom"},
-                                  {"key":"sectbar","label":"Section"}], grp)
+async def rapport_liste_som(date_debut: Optional[str] = None, date_fin: Optional[str] = None,
+                            user: dict = Depends(get_current_user)):
+    if not date_debut:
+        date_debut = datetime.now().strftime("%Y-%m-01")
+    if not date_fin:
+        date_fin = datetime.now().strftime("%Y-%m-%d")
+    avos = await _avocats_actifs_with_mega()
+    pdf = build_liste_som(date_debut, date_fin, avos)
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
                              headers={"Content-Disposition": 'attachment; filename="liste_som.pdf"'})
-
-
-@api_router.get("/rapports/registre98")
-async def rap_registre98(date_debut: str, date_fin: str, user: dict = Depends(get_current_user)):
-    # Groupé par code nature (article du Code criminel)
-    cursor = db.mandats.find({"date_ordonnance": {"$gte": date_debut, "$lte": date_fin}}, {"_id": 0})
-    avo_cache = {}
-    grp = {}
-    for m in await cursor.to_list(length=10000):
-        if m["avocat_id"] not in avo_cache:
-            a = await db.avocats.find_one({"id": m["avocat_id"]}, {"_id": 0})
-            avo_cache[m["avocat_id"]] = a or {}
-        a = avo_cache[m["avocat_id"]]
-        m["avocat_code"] = a.get("code", "")
-        m["avocat_nom"] = f"{a.get('nom','')}, {a.get('prenom','')}"
-        m["sectbar"] = a.get("sectbar", "")
-        key = f"Article {m.get('article', '?')} C.cr."
-        grp.setdefault(key, []).append(m)
-    pdf = _build_avocat_list_pdf("Registre Article 98 — par code nature", f"Période du {date_debut} au {date_fin}",
-                                 [{"key":"avocat_code","label":"Code"},{"key":"avocat_nom","label":"Avocat"},
-                                  {"key":"requerant","label":"Requérant"},{"key":"date_ordonnance","label":"Date ord."},
-                                  {"key":"numero","label":"Mandat"},{"key":"sectbar","label":"Section"}], grp)
-    return StreamingResponse(iter([pdf]), media_type="application/pdf",
-                             headers={"Content-Disposition": f'attachment; filename="registre98_{date_debut}_{date_fin}.pdf"'})
 
 
 @api_router.get("/")

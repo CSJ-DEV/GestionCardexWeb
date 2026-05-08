@@ -4,6 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Plus, Pencil, Trash2, Star } from "lucide-react";
 import { toast } from "sonner";
 import { Field, EMPTY_ADRESSE } from "./constants";
@@ -13,14 +17,14 @@ import {
     isValidEmail,
 } from "./formatters";
 
-// Mini message d'erreur sous un champ
 const FieldError = ({ children, testId }) => (
     <p className="text-xs text-red-600 mt-1" data-testid={testId}>{children}</p>
 );
 
 export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, onDelete }) => {
-    // Erreurs « live » par champ — n'apparaissent qu'au blur ou à la tentative d'enregistrement
     const [errors, setErrors] = useState({});
+    // Dialog confirmant le changement d'adresse courante (l'ancienne sera rétrogradée)
+    const [confirm, setConfirm] = useState(null); // { type: "replace" | "promote", existing? }
 
     const setField = (key, value) => setEditAdr({ ...editAdr, [key]: value });
     const clearError = (key) => setErrors((e) => ({ ...e, [key]: null }));
@@ -41,7 +45,47 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
             toast.error("Veuillez corriger les champs invalides");
             return;
         }
+        // Repère une éventuelle adresse courante existante (autre que celle en cours d'édition)
+        const existingCourante = adresses.find((a) => a.courant && a.id !== editAdr?.id);
+
+        // Cas 1 : utilisateur veut marquer cette adresse comme courante alors qu'une autre l'est déjà
+        if (editAdr?.courant && existingCourante) {
+            setConfirm({ type: "replace", existing: existingCourante });
+            return;
+        }
+        // Cas 2 : aucune adresse courante n'est définie (ni ailleurs, ni sur cette adresse)
+        //         → on suggère de marquer celle-ci comme courante (workflow legacy VB)
+        if (!editAdr?.courant && !existingCourante) {
+            setConfirm({ type: "promote" });
+            return;
+        }
+        // Cas 3 : pas de conflit → save direct
         onSave();
+    };
+
+    // Confirmé "Oui, remplacer" / "Oui, définir comme courante"
+    const confirmYes = () => {
+        if (confirm?.type === "promote" && !editAdr.courant) {
+            setEditAdr({ ...editAdr, courant: true });
+            // setEditAdr est asynchrone — on appelle onSave au prochain tick avec la nouvelle valeur
+            setTimeout(() => onSave(), 0);
+        } else {
+            onSave();
+        }
+        setConfirm(null);
+    };
+
+    // "Non, garder l'autre" → pour replace : on désactive le switch et on save quand même
+    // (l'utilisateur a refusé le remplacement, donc cette adresse n'est pas courante)
+    const confirmNo = () => {
+        if (confirm?.type === "replace") {
+            setEditAdr({ ...editAdr, courant: false });
+            setTimeout(() => onSave(), 0);
+        } else {
+            // promote refusé : save sans courante
+            onSave();
+        }
+        setConfirm(null);
     };
 
     return (
@@ -158,7 +202,7 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
                     </div>
                     <div className="flex items-center justify-between border border-slate-200 rounded-md px-3 py-2 bg-white">
                         <Label>Adresse courante</Label>
-                        <Switch checked={!!editAdr.courant} onCheckedChange={(v) => setField("courant", v)} />
+                        <Switch checked={!!editAdr.courant} onCheckedChange={(v) => setField("courant", v)} data-testid="adr-courant-switch" />
                     </div>
                     <div className="flex justify-end gap-2">
                         <Button variant="outline" onClick={() => setEditAdr(null)} className="rounded-md" data-testid="cancel-adresse-btn">Annuler</Button>
@@ -166,6 +210,42 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
                     </div>
                 </div>
             )}
+
+            <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>
+                <AlertDialogContent data-testid="adr-confirm-dialog">
+                    {confirm?.type === "replace" ? (
+                        <>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Remplacer l'adresse courante ?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    L'adresse <span className="font-semibold">{confirm.existing?.address || "—"}</span>
+                                    {confirm.existing?.ville ? `, ${confirm.existing.ville}` : ""} est actuellement définie comme courante.
+                                    En enregistrant cette adresse comme courante, l'autre cessera de l'être.
+                                    Souhaitez-vous continuer ?
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel onClick={confirmNo} data-testid="adr-confirm-no">Non, garder l'autre comme courante</AlertDialogCancel>
+                                <AlertDialogAction onClick={confirmYes} data-testid="adr-confirm-yes" className="bg-[#0033A0] hover:bg-[#002277]">Oui, remplacer</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </>
+                    ) : (
+                        <>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Définir comme adresse courante ?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Aucune adresse courante n'est définie pour cet avocat.
+                                    Voulez-vous définir <span className="font-semibold">cette nouvelle adresse</span> comme courante ?
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel onClick={confirmNo} data-testid="adr-confirm-no">Non, enregistrer sans</AlertDialogCancel>
+                                <AlertDialogAction onClick={confirmYes} data-testid="adr-confirm-yes" className="bg-[#0033A0] hover:bg-[#002277]">Oui, la définir comme courante</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </>
+                    )}
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

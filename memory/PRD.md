@@ -178,8 +178,25 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
   - `useEffect` charge maintenant **adresses + inhabilités + profil méga** depuis le backend → pas de perte de données existantes lors de la réouverture
 - **Tests** : `iteration_5.json` — 8/8 critères d'acceptation validés (100% frontend)
 
-## Backlog après ce fork
-- **P1** Pixel-perfect des 5 PDF (alignement, en-têtes, polices) vs Crystal Reports legacy fournis
-- **P2** Refactor `AvocatSheet.jsx` (~540 lignes) en sous-composants `AdressesTab`, `MegaTab`, `InhabTab`, `WebTab`
-- **P2** Optimisation: clé `useEffect` sur `avocat?.id` au lieu de `avocat` pour éviter les refetches redondants
-- **P3** Script de migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql)
+## Phase 5 — Pixel-perfect PDFs + Refactor AvocatSheet (2026-02 fork, suite)
+**Implémenté** :
+- **Nouveau module `/app/backend/pdf_reports.py`** (480 lignes) — reproduction fidèle Crystal Reports :
+  - Pavé bleu `AIDE JURIDIQUE` en haut-gauche (équivalent du logo balances de l'aide juridique)
+  - Titre centré "Commission des services juridiques" + sous-titre rule-specific (article 97/98/83.10)
+  - Footer répété sur chaque page : `AAAA/MM/JJ | nom_rapport.rpt | Page X` + filet de séparation
+  - `BaseDocTemplate` + `onPage` callback pour chrome persistant
+  - Polices Helvetica (équiv. Arial Crystal d'origine)
+  - **Registre97** : 4 articles (486.3/486.7/672.5/684), sous-groupes par type avocat (Pratique Privée / Permanents / Notaires), libellés exacts "Sous-total Avocats X    N mandat(s)" + "Total Article X C.cr.    N mandat(s)"
+  - **Registre98** : colonnes legacy (Avocat | Mandat | Ordonnance | Date ord. | Date émission | Date fermeture), tri explicite des articles
+  - **ListeDetBar/Dist/Reg** : blocs détaillés par avocat (nom + adresse + tél + email + langues + sections + districts) groupés respectivement par section barreau / ville / décennie barreau
+  - **ListeSom** : tableau alphabétique compact avec colonnes legacy
+  - Suppression du "Total général" qui n'existe pas en legacy
+- **Refactor frontend `AvocatSheet.jsx`** : 540 → 232 lignes, split en 5 sous-composants dans `/app/frontend/src/components/avocat/` (`IdentificationTab`, `AdressesTab`, `InhabTab`, `MegaTab`, `WebTab` + `constants.js` partagé)
+- **Optimisation `useEffect`** : 2 effets séparés — form-sync sur `[avocat]` (léger), heavy-fetch (adresses/inhab/mega) sur `[avocat?.id]` uniquement → plus de refetches après PUT identification
+- **Tests** : `iteration_6.json` — backend 13/13 pytest (100%), frontend sans régression du fix P0
+
+## Backlog après Phase 5
+- **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
+- **P2** Indicateur visuel "modifications non enregistrées" sur les TabsTrigger (UX)
+- **P3** Audit log des modifications avocats (qui, quand, quoi)
+- **P3** Streaming PDF par chunks pour gros datasets (actuellement chargés en mémoire)

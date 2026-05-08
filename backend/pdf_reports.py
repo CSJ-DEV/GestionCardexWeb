@@ -284,7 +284,11 @@ def build_registre98(date_debut: str, date_fin: str, rows_par_article: dict[str,
     if not rows_par_article:
         el.append(Paragraph("<i>Aucun mandat pour la période</i>", s["n"]))
     else:
-        for article, items in rows_par_article.items():
+        # Tri explicite pour reproductibilité entre exécutions
+        ARTICLES_ORDER = ["486.3", "486.7", "672.5", "684"]
+        ordered = [(a, rows_par_article[a]) for a in ARTICLES_ORDER if a in rows_par_article]
+        ordered += [(a, items) for a, items in rows_par_article.items() if a not in ARTICLES_ORDER]
+        for article, items in ordered:
             el.append(Paragraph(f"Article {article} C.cr.", s["section"]))
             data = [headers] + [
                 [

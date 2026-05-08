@@ -15,11 +15,11 @@ import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Database, Plus, Pencil, Trash2, CheckCircle2, XCircle, Lock, Server } from "lucide-react";
+import { Database, Plus, Pencil, Trash2, CheckCircle2, XCircle, Lock, Server, Download } from "lucide-react";
 import { toast } from "sonner";
 
-const TYPE_LABEL = { mongodb: "MongoDB", sqlserver: "SQL Server" };
-const DEFAULT_PORT = { mongodb: 27017, sqlserver: 1433 };
+const TYPE_LABEL = { mongodb: "MongoDB", sqlserver: "SQL Server", sqlite: "SQLite (fichier local)" };
+const DEFAULT_PORT = { mongodb: 27017, sqlserver: 1433, sqlite: null };
 const EMPTY = { name: "", type: "sqlserver", server: "", port: 1433, database: "", user: "", password: "", description: "" };
 
 export default function Connexions() {
@@ -182,6 +182,17 @@ export default function Connexions() {
                                 </div>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
+                                {c.type === "sqlite" && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Télécharger le fichier .db"
+                                        onClick={() => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/connexions/${c.id}/download`, "_blank")}
+                                        data-testid={`download-connexion-${c.id}`}
+                                    >
+                                        <Download size={14} />
+                                    </Button>
+                                )}
                                 <Button variant="ghost" size="icon" onClick={() => openEdit(c)} data-testid={`edit-connexion-${c.id}`}>
                                     <Pencil size={14} />
                                 </Button>
@@ -219,6 +230,7 @@ export default function Connexions() {
                                     <SelectContent>
                                         <SelectItem value="sqlserver">SQL Server</SelectItem>
                                         <SelectItem value="mongodb">MongoDB</SelectItem>
+                                        <SelectItem value="sqlite">SQLite (fichier local)</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>

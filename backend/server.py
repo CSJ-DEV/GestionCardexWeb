@@ -654,6 +654,26 @@ async def delete_connexion(conn_id: str, user: dict = Depends(require_role("admi
     return {"ok": True}
 
 
+@api_router.get("/connexions/{conn_id}/download")
+async def download_sqlite_file(conn_id: str, user: dict = Depends(require_role("admin"))):
+    """Télécharge le fichier SQLite associé à une connexion (type=sqlite)."""
+    from fastapi.responses import FileResponse
+    doc = await db.connexions.find_one({"id": conn_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Connexion introuvable")
+    if doc.get("type") != "sqlite":
+        raise HTTPException(status_code=400, detail="Téléchargement réservé aux connexions SQLite")
+    file_rel = doc.get("database") or ""
+    file_path = ROOT_DIR / file_rel
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Fichier introuvable : {file_rel}")
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/x-sqlite3",
+        filename=file_path.name,
+    )
+
+
 @api_router.post("/connexions/{conn_id}/test")
 async def test_existing_connexion(conn_id: str, user: dict = Depends(require_role("admin"))):
     """Teste une connexion stockée (utilise le mot de passe déchiffré)."""
@@ -1123,6 +1143,34 @@ async def on_startup():
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
         logger.info("Connexion primaire seeded")
+
+    # Seed des 3 BDD SQLite (équivalent local des 3 BDD SQL Server legacy)
+    sqlite_seeds = [
+        {"name": "sCardAvo (SQLite local)", "file": "sqlite_dbs/sCardAvo.db",
+         "description": "Équivalent SQLite de sCardAvo.sql — 19 tables (Avocats, Adresses, infomega, inhpra, etc.). Utilisé pour préparer la migration vers SQL Server en production."},
+        {"name": "sStaticPc (SQLite local)", "file": "sqlite_dbs/sStaticPc.db",
+         "description": "Équivalent SQLite de sStaticPc.sql — 84 tables de référence (codes, listes, paramètres)."},
+        {"name": "sArt52 (SQLite local)", "file": "sqlite_dbs/sArt52.db",
+         "description": "Équivalent SQLite de sArt52.sql — 126 tables (paiements et règlements Article 52)."},
+    ]
+    for s in sqlite_seeds:
+        if not await db.connexions.find_one({"name": s["name"]}):
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await db.connexions.insert_one({
+                "id": str(uuid.uuid4()),
+                "name": s["name"],
+                "type": "sqlite",
+                "server": "(fichier local)",
+                "port": None,
+                "user": "",
+                "database": s["file"],
+                "description": s["description"],
+                "password_enc": "",
+                "is_primary": False,
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            })
+            logger.info(f"SQLite seed: {s['name']}")
 
 
 @app.on_event("shutdown")

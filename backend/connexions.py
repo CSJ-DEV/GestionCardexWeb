@@ -48,7 +48,7 @@ def decrypt_password(token: str) -> str:
 
 
 # ---------- Modèles ----------
-ConnexionType = Literal["mongodb", "sqlserver"]
+ConnexionType = Literal["mongodb", "sqlserver", "sqlite"]
 
 
 class ConnexionBase(BaseModel):
@@ -166,12 +166,41 @@ def _test_sqlserver(server: str, port: int, user: str, password: str, database: 
         return {"ok": False, "message": f"Erreur SQL Server : {e}"}
 
 
+def _test_sqlite(server: str, database: str) -> dict:
+    """Test d'un fichier SQLite local (le 'server' est ignoré, c'est un chemin de fichier)."""
+    import sqlite3
+    from pathlib import Path
+
+    path = Path(database) if database else Path(server)
+    if not path.is_absolute():
+        # Chemin relatif → on le résout par rapport au backend
+        path = Path(__file__).parent / path
+    if not path.exists():
+        return {"ok": False, "message": f"Fichier introuvable : {path}"}
+
+    started = datetime.now(timezone.utc)
+    try:
+        conn = sqlite3.connect(str(path))
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+        tables = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        latency = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        size_kb = path.stat().st_size // 1024
+        return {"ok": True, "message": f"SQLite OK ({latency} ms) — {tables} tables, {size_kb} KB", "latency_ms": latency}
+    except sqlite3.Error as e:
+        return {"ok": False, "message": f"Erreur SQLite : {e}"}
+
+
 def test_connection(c_type: str, server: str, port: Optional[int], user: str,
                     password: str, database: str) -> dict:
     if c_type == "mongodb":
         return _test_mongodb(server, port or 27017, user, password, database)
     if c_type == "sqlserver":
         return _test_sqlserver(server, port or 1433, user, password, database)
+    if c_type == "sqlite":
+        return _test_sqlite(server, database)
     return {"ok": False, "message": f"Type de connexion inconnu : {c_type}"}
 
 

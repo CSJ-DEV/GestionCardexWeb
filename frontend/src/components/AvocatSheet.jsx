@@ -150,9 +150,13 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         const { data } = await api.get(`/avocats/${avocatId}/adresses`);
         setAdresses(data || []);
     };
-    const saveAdresse = async () => {
-        if (!editAdr) return;
-        const { id, courant, ...payload } = editAdr;
+    const saveAdresse = async (override = null) => {
+        // override permet au composant enfant (AdressesTab) de passer une version
+        // modifiée de l'adresse (ex. courant=true après confirmation) sans dépendre
+        // du re-render React, qui n'est pas synchrone.
+        const data = override || editAdr;
+        if (!data) return;
+        const { id, courant, ...payload } = data;
         try {
             if (id) {
                 await api.put(`/avocats/${avocatId}/adresses/${id}?courant=${!!courant}`, payload);

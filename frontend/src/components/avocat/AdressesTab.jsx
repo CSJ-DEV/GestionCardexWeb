@@ -70,28 +70,30 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
     };
 
     // Confirmé "Oui" :
-    //  - promote : on bascule le switch ON et on save
-    //  - switch  : idem (on définit cette adresse comme courante, l'autre sera rétrogradée par le backend)
-    //  - replace : save tel quel (le switch est déjà ON)
+    //  - promote / switch : on définit cette adresse comme courante (l'autre sera rétrogradée par le backend)
+    //  - replace          : save tel quel (le switch est déjà ON)
+    // On passe l'override directement à onSave pour éviter les problèmes de re-render React.
     const confirmYes = () => {
         if (confirm?.type === "promote" || confirm?.type === "switch") {
-            setEditAdr({ ...editAdr, courant: true });
-            setTimeout(() => onSave(), 0);
+            const next = { ...editAdr, courant: true };
+            setEditAdr(next);
+            onSave(next);
         } else {
-            onSave();
+            onSave(editAdr);
         }
         setConfirm(null);
     };
 
     // Confirmé "Non" :
     //  - replace : on désactive le switch (l'autre reste courante) puis save
-    //  - promote / switch : save tel quel sans courante
+    //  - promote / switch : save sans courante
     const confirmNo = () => {
         if (confirm?.type === "replace") {
-            setEditAdr({ ...editAdr, courant: false });
-            setTimeout(() => onSave(), 0);
+            const next = { ...editAdr, courant: false };
+            setEditAdr(next);
+            onSave(next);
         } else {
-            onSave();
+            onSave(editAdr);
         }
         setConfirm(null);
     };

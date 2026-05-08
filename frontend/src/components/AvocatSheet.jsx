@@ -54,6 +54,16 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     const [editInhab, setEditInhab] = useState(null);
     const [mega, setMega] = useState(EMPTY_MEGA);
     const [megaSaving, setMegaSaving] = useState(false);
+    // Onglet actif (contrôlé) — utile pour rebasculer hors de Méga si l'utilisateur
+    // désactive le flag « Méga » dans Identification.
+    const [activeTab, setActiveTab] = useState("ident");
+
+    // Si on est sur l'onglet Méga et que le flag bascule à false → retour à Identification
+    useEffect(() => {
+        if (activeTab === "mega" && !form.mega) {
+            setActiveTab("ident");
+        }
+    }, [form.mega, activeTab]);
 
     // Baselines (= état "propre" après dernier load/save) — useState pour que tout
     // changement déclenche la recomputation des useMemo dirty (sinon useRef reste invisible à React).
@@ -65,6 +75,8 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
 
     // Effet 1 — synchronise le formulaire chaque fois que le parent passe un nouvel avocat
     useEffect(() => {
+        // Reset l'onglet actif sur Identification quand on change d'avocat
+        setActiveTab("ident");
         if (avocat?.id) {
             const next = { ...EMPTY_AVOCAT, ...avocat, adresse: { ...EMPTY_AVOCAT.adresse, ...(avocat.adresse || {}) } };
             setForm(next);
@@ -235,7 +247,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                     <SheetDescription>Fiche complète — fidèle à GestionCardex VB</SheetDescription>
                 </SheetHeader>
 
-                <Tabs defaultValue="ident" className="mt-6">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
                     <TabsList className={`grid w-full ${tabsCount === 6 ? "grid-cols-6" : "grid-cols-5"}`}>
                         <TabsTrigger value="ident" data-testid="tab-ident">
                             Identification
@@ -249,9 +261,9 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                             Inhabilité {inhabs.length > 0 && `(${inhabs.length})`}
                             <DirtyDot visible={inhabDirty} testId="dirty-inhab" />
                         </TabsTrigger>
-                        <TabsTrigger value="mega" disabled={!isEditing} data-testid="tab-mega">
+                        <TabsTrigger value="mega" disabled={!isEditing || !form.mega} data-testid="tab-mega">
                             Méga
-                            <DirtyDot visible={megaDirty} testId="dirty-mega" />
+                            <DirtyDot visible={megaDirty && !!form.mega} testId="dirty-mega" />
                         </TabsTrigger>
                         <TabsTrigger value="web" disabled={!isEditing} data-testid="tab-web">
                             Web

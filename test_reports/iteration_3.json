@@ -1,0 +1,42 @@
+{
+  "summary": "Frontend re-test (post QC_DISTRICTS fix). Login and dashboard work correctly, but AvocatSheet still crashes with a NEW ReferenceError as soon as it tries to render. The QC_DISTRICTS fix from iteration_2 is in place (verified at lines 17-24 of AvocatSheet.jsx), however the component references 4 undefined functions that crash the React tree before the sheet is visible. Result: BLOCKED - cannot test ANY of the 5 tabs end-to-end (Identification, Adresses, Inhabilité, Méga, Web).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AvocatSheet.jsx", "issue": "ReferenceError: saveMega is not defined - crashes whole component as soon as user opens new/existing avocat sheet. Uncaught runtime error overlay covers entire viewport.", "selector": "[data-testid=\"save-mega-btn\"] line 397", "priority": "CRITICAL"},
+      {"component": "AvocatSheet.jsx", "issue": "ReferenceError: saveInhab is not defined - referenced at line 346 onClick of save-inhab-btn. Will crash when Inhabilité editor opens.", "selector": "[data-testid=\"save-inhab-btn\"]", "priority": "CRITICAL"},
+      {"component": "AvocatSheet.jsx", "issue": "ReferenceError: deleteInhab is not defined - referenced at line 329 in inhab row delete button.", "selector": "inhab-row delete button", "priority": "CRITICAL"},
+      {"component": "AvocatSheet.jsx", "issue": "ReferenceError: toggleDistrict is not defined - referenced at line 386 onChange of mega-district-{id} checkboxes.", "selector": "[data-testid^=\"mega-district-\"]", "priority": "CRITICAL"},
+      {"component": "AvocatSheet.jsx", "issue": "Missing GET /api/avocats/{id}/inhabilites and /api/avocats/{id}/mega useEffect - inhabs and mega state never load existing data when sheet opens for editing.", "selector": "useEffect", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Open AvocatSheet (new or edit) → 5 tabs", "issue": "Component throws on render before any tab is interactive. All 5 tabs (tab-ident, tab-adr, tab-inhab, tab-mega, tab-web) are unreachable.", "affected_selectors": ["[data-testid=\"avocat-sheet\"]","tab-ident","tab-adr","tab-inhab","tab-mega","tab-web"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_3.json"],
+  "action_items": [
+    "URGENT: Add missing handler functions in /app/frontend/src/components/AvocatSheet.jsx: saveMega, saveInhab, deleteInhab, toggleDistrict. Without these, the 5-tab workflow is fully blocked.",
+    "saveMega should PUT/POST to /api/avocats/{id}/mega with current `mega` state, then toast.success('Profil Méga enregistré').",
+    "saveInhab should POST/PUT /api/avocats/{id}/inhabilites with editInhab payload, reload inhabs, clear editInhab.",
+    "deleteInhab should confirm + DELETE /api/avocats/{id}/inhabilites/{id} and reload list.",
+    "toggleDistrict(id) should add/remove id from mega.districts array and clear tous_districts when not all selected.",
+    "Add useEffect for avocat?.id to fetch existing inhabs (GET /api/avocats/{id}/inhabilites) and mega profile (GET /api/avocats/{id}/mega) so edit mode prefills data.",
+    "After fix, full re-test of: create avocat (auto code A0001), tabs activation post-create, adresse courant, mega districts toggle, inhab period add, web password set, brute-force lockout, Rapports 6 download buttons, Utilisateurs admin CRUD."
+  ],
+  "critical_code_review_comments": [
+    "AvocatSheet.jsx (484 lines) is approaching the 700-line threshold and already mixes 5 tabs of business logic - should be split into AvocatSheetIdent.jsx, AvocatSheetAdresses.jsx, AvocatSheetInhab.jsx, AvocatSheetMega.jsx, AvocatSheetWeb.jsx subcomponents.",
+    "Component has no error boundary, so a single ReferenceError tears down the entire sheet content.",
+    "The fact that lint passes but runtime crashes shows ESLint 'no-undef' rule is either disabled or not catching JSX onClick/onChange handler refs - tighten ESLint config to fail on undefined identifiers.",
+    "Missing loading/error UI states for adresses/inhabs/mega fetches.",
+    "saveAdresse uses `?courant=...` query param while body uses payload - inconsistent API style; consider including `courant` inside the JSON body."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not retested (100% in iter_2)", "frontend": "10% - login + dashboard OK, AvocatSheet 0% (blocked)"},
+  "test_credentials": "admin@gestioncardex.qc / Admin2026! (login confirmed working, redirects to /, sidebar shows Tableau de bord, Avocats, Rapports, Utilisateurs)",
+  "seed_data_creation": "None - 1 existing avocat already seeded in DB.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration_2 fixed QC_DISTRICTS ReferenceError. Iteration_3 found 4 NEW ReferenceErrors in same file (saveMega, saveInhab, deleteInhab, toggleDistrict). Once main agent implements these handlers, re-run full 5-tab workflow + brute-force lockout + Rapports + Utilisateurs. Backend was 27/27 in iter_2 - re-verify only after handler additions if new endpoints (e.g., /mega, /inhabilites) are added.",
+  "rca_of_the_issue": "Root cause: AvocatSheet.jsx was authored with JSX onClick/onChange handlers referencing functions (saveMega, saveInhab, deleteInhab, toggleDistrict) that were never defined inside the component body. Because they are only resolved at React render time (not at module evaluation), ESLint+Babel did not flag them. Reproduction: 1) login admin, 2) click 'Avocats' or any avocat row / 'Nouvel avocat' button, 3) immediate 'Uncaught runtime errors: saveMega is not defined' overlay. Mitigation: define the missing handlers next to handleSubmit/saveAdresse following the same pattern (api.put → toast.success → reload). Once defined the QC_DISTRICTS-based district toggle UI will also work."
+}

@@ -66,9 +66,10 @@ def create_refresh_token(user_id: str) -> str:
 
 
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
-    response.set_cookie("access_token", access_token, httponly=True, secure=False, samesite="lax",
+    secure = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
+    response.set_cookie("access_token", access_token, httponly=True, secure=secure, samesite="lax",
                         max_age=60 * 60 * 8, path="/")
-    response.set_cookie("refresh_token", refresh_token, httponly=True, secure=False, samesite="lax",
+    response.set_cookie("refresh_token", refresh_token, httponly=True, secure=secure, samesite="lax",
                         max_age=60 * 60 * 24 * 7, path="/")
 
 

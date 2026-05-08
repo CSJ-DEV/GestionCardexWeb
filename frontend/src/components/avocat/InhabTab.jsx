@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Field } from "./constants";
+import { DateInput } from "./DateInput";
 
 export const InhabTab = ({ readOnly, inhabs, editInhab, setEditInhab, onSave, onDelete }) => (
     <div className="space-y-4">
@@ -41,8 +42,8 @@ export const InhabTab = ({ readOnly, inhabs, editInhab, setEditInhab, onSave, on
             <div className="border-2 border-[#0033A0] rounded-md p-4 space-y-3 bg-blue-50/30">
                 <div className="font-semibold text-sm">{editInhab.id ? "Modifier la période" : "Nouvelle période"}</div>
                 <div className="grid grid-cols-2 gap-3">
-                    <Field label="Date début"><Input type="date" value={editInhab.datedeb || ""} onChange={(e) => setEditInhab({ ...editInhab, datedeb: e.target.value })} className="rounded-md" data-testid="inhab-datedeb" /></Field>
-                    <Field label="Date fin"><Input type="date" value={editInhab.datefin || ""} onChange={(e) => setEditInhab({ ...editInhab, datefin: e.target.value })} className="rounded-md" data-testid="inhab-datefin" /></Field>
+                    <Field label="Date début"><DateInput value={editInhab.datedeb || ""} onChange={(v) => setEditInhab({ ...editInhab, datedeb: v })} className="rounded-md font-mono" data-testid="inhab-datedeb" /></Field>
+                    <Field label="Date fin"><DateInput value={editInhab.datefin || ""} onChange={(v) => setEditInhab({ ...editInhab, datefin: v })} className="rounded-md font-mono" data-testid="inhab-datefin" /></Field>
                 </div>
                 <Field label="Commentaire"><Textarea value={editInhab.comm || ""} onChange={(e) => setEditInhab({ ...editInhab, comm: e.target.value })} rows={3} className="rounded-md" /></Field>
                 <div className="flex justify-end gap-2">

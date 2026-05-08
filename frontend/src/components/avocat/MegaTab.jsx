@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Field, QC_DISTRICTS } from "./constants";
+import { DateInput } from "./DateInput";
 
 const ARTICLES = [
     { k: "art486", l: "Article 486" },
@@ -24,7 +25,7 @@ export const MegaTab = ({ readOnly, mega, setMega, megaSaving, onSave }) => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Field label="Section barreau"><Input value={mega.sectbar || ""} onChange={(e) => setMega({ ...mega, sectbar: e.target.value })} disabled={readOnly} className="rounded-md" data-testid="mega-sectbar" /></Field>
                 <Field label="Expérience (années)"><Input type="number" min="0" value={mega.experience || 0} onChange={(e) => setMega({ ...mega, experience: parseInt(e.target.value) || 0 })} disabled={readOnly} className="rounded-md" data-testid="mega-experience" /></Field>
-                <Field label="Date inscription"><Input type="date" value={mega.dateinsc || ""} onChange={(e) => setMega({ ...mega, dateinsc: e.target.value })} disabled={readOnly} className="rounded-md" /></Field>
+                <Field label="Date inscription"><DateInput value={mega.dateinsc || ""} onChange={(v) => setMega({ ...mega, dateinsc: v })} disabled={readOnly} className="rounded-md font-mono" /></Field>
             </div>
             <Separator />
             <div>

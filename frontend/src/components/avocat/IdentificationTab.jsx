@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Field } from "./constants";
+import { DateInput } from "./DateInput";
 
 const STATUTS = [
     { k: "actif", l: "Actif" }, { k: "attente", l: "En attente" },
@@ -61,7 +62,7 @@ export const IdentificationTab = ({
                 <Input value={form.neq} onChange={(e) => upd("neq", e.target.value)} disabled={readOnly} maxLength={10} className="rounded-md font-mono" />
             </Field>
             <Field label="Date inscription barreau">
-                <Input type="date" value={form.dateinscbarr || ""} onChange={(e) => upd("dateinscbarr", e.target.value)} disabled={readOnly} className="rounded-md" />
+                <DateInput value={form.dateinscbarr || ""} onChange={(v) => upd("dateinscbarr", v)} disabled={readOnly} className="rounded-md font-mono" />
             </Field>
             <Field label="Taxes">
                 <Input value={form.taxes} onChange={(e) => upd("taxes", e.target.value)} disabled={readOnly} className="rounded-md" />

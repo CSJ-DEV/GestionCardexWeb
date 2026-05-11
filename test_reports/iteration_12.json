@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 12 — Validation backend refactor streaming PDF (StreamingResponse(chunk_bytes()) + yield_per(500) + headers Content-Length / Cache-Control / X-Accel-Buffering). 27/27 tests PASS sur le nouveau test_streaming_rapports.py + 13/13 PASS sur test_pdf_reports.py legacy. Tous les 6 endpoints /api/rapports/* retournent 200 OK avec signature %PDF-, Content-Length cohérent avec len(body), Cache-Control: no-store. Auth 401 sans cookie OK. Test de charge léger : 100 avocats + 100 mandats temporaires → chaque rapport généré en 0.07s à 0.22s (largement < 5s requis). Régression non-rapports OK : login, /auth/me, avocats CRUD complet, /avocats/stats, /users, /connexions, /auth/change-password (méthode PUT). Cleanup confirmé : 0 résidu TEST_BULK_ en BDD.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_streaming_rapports.py",
+    "/app/test_reports/pytest/iteration_12_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "streaming.py: pdf_streaming_headers() inclut bien Content-Length, Cache-Control no-store, X-Accel-Buffering=no et Content-Disposition attachment. Code propre, bien commenté en français, 47 lignes lisibles.",
+    "rapports.py: yield_per(BATCH_SIZE=500) appliqué sur Mandat (registre97/98) et Avocat (liste-det-*). Préchargement batché de InfoMega + InfoDistrict via _hydrate_batch() → 2 requêtes par batch au lieu de 2N. Cache _avo_for_mandat partagé entre les mandats du même avocat. Pas de fuite mémoire.",
+    "Tailles PDF cohérentes avant/après refactor : registre97=7167, registre98=10224, liste-det-bar=27563, liste-det-dist=27664, liste-det-reg=28021, liste-som=11691 bytes — pas de corruption due au chunking (les bytes immuables sont préservés).",
+    "Streaming en chunks de 64 Ko : pour les PDF actuels (< 30 Ko) le chunking n'apporte rien en pratique, mais la mécanique est en place pour de gros volumes futurs. Code défensif (early return si data vide).",
+    "Pas d'import circulaire détecté entre streaming.py / rapports.py / pdf_reports.py."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_streaming_rapports.py (NEW — 27 tests : 6 auth-401 + 6 status/headers/Content-Length + 6 charge-légère 100 avocats/100 mandats + 9 régression non-rapports)"
+  ],
+  "success_rate": {
+    "backend": "100% (27/27 nouveaux + 13/13 legacy PDF = 40/40)",
+    "frontend": "N/A (testing_type = backend only)"
+  },
+  "test_credentials": "admin@gestioncardex.qc / Admin2026! — INTACT ✓",
+  "seed_data_creation": "100 avocats TEST_BULK_<RUNID>_<NNN> + 100 mandats M-BULK-<RUNID>-<NNN> créés dans la fixture bulk_data scope=module, supprimés en fin de session via teardown. Cleanup vérifié post-run : 0 résidu côté BDD via GET /api/avocats?q=TEST_BULK_.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Le refactor streaming PDF est validé fonctionnellement. Pour relancer la régression complète : `cd /app/backend && REACT_APP_BACKEND_URL=https://cardex-migrate.preview.emergentagent.com python -m pytest tests/test_streaming_rapports.py tests/test_pdf_reports.py -v`. Notes : le test 27 (change_password_rejects_same) effectue un PUT (pas POST) sur /api/auth/change-password — c'est la méthode du router auth.py:63. Les tailles PDF observées en charge ~100 sont identiques aux tailles à vide (~10-28 Ko) car les rapports n'incluent pas tous les avocats — la BDD a déjà ~107 avocats sur le run.",
+  "rca of the issue": "N/A — aucun bug détecté. Le refactor streaming + yield_per est strictement non-régressif sur les 40 tests joués. Tous les headers exigés (Content-Length, Cache-Control no-store) sont présents et corrects."
+}

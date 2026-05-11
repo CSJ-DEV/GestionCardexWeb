@@ -59,12 +59,16 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     const [activeTab, setActiveTab] = useState("ident");
 
     // Si on est sur l'onglet Méga et que l'avocat persisté n'a plus le flag « Méga »
-    // (toggle off + save), retour à Identification.
+    // (toggle off + save), retour à Identification. Idem pour l'onglet Web qui dépend
+    // de la facturation web persistée côté backend.
     useEffect(() => {
         if (activeTab === "mega" && !avocat?.mega) {
             setActiveTab("ident");
         }
-    }, [avocat?.mega, activeTab]);
+        if (activeTab === "web" && !avocat?.factweb) {
+            setActiveTab("ident");
+        }
+    }, [avocat?.mega, avocat?.factweb, activeTab]);
 
     // Baselines (= état "propre" après dernier load/save) — useState pour que tout
     // changement déclenche la recomputation des useMemo dirty (sinon useRef reste invisible à React).
@@ -266,9 +270,9 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                             Méga
                             <DirtyDot visible={megaDirty && !!avocat?.mega} testId="dirty-mega" />
                         </TabsTrigger>
-                        <TabsTrigger value="web" disabled={!isEditing} data-testid="tab-web">
+                        <TabsTrigger value="web" disabled={!isEditing || !avocat?.factweb} data-testid="tab-web">
                             Web
-                            <DirtyDot visible={webDirty} testId="dirty-web" />
+                            <DirtyDot visible={webDirty && !!avocat?.factweb} testId="dirty-web" />
                         </TabsTrigger>
                         {isAdmin && (
                             <TabsTrigger value="hist" disabled={!isEditing} data-testid="tab-hist">
@@ -283,6 +287,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                             saving={saving} onTypeChange={onTypeChange}
                             onSubmit={handleSubmit} onCancel={() => onOpenChange(false)}
                             savedMega={!!avocat?.mega}
+                            savedFactweb={!!avocat?.factweb}
                         />
                     </TabsContent>
 

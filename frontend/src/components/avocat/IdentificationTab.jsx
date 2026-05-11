@@ -17,7 +17,7 @@ const STATUTS = [
 
 export const IdentificationTab = ({
     form, upd, isEditing, readOnly, saving, onTypeChange,
-    onSubmit, onCancel, savedMega,
+    onSubmit, onCancel, savedMega, savedFactweb,
 }) => (
     <form onSubmit={onSubmit} className="space-y-6" data-testid="avocat-form">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -76,10 +76,12 @@ export const IdentificationTab = ({
         <div className="overline">Statuts</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {STATUTS.map((o) => {
-                // Cas spécial Méga : indique à l'utilisateur que l'onglet ne sera
-                // accessible qu'après sauvegarde de l'identification.
+                // Cas spéciaux Méga & Facturation web : l'onglet correspondant
+                // ne sera accessible qu'après sauvegarde de l'identification.
                 const megaPendingSave = o.k === "mega" && isEditing && !!form.mega && !savedMega;
                 const megaPendingDisable = o.k === "mega" && isEditing && !form.mega && !!savedMega;
+                const webPendingSave = o.k === "factweb" && isEditing && !!form.factweb && !savedFactweb;
+                const webPendingDisable = o.k === "factweb" && isEditing && !form.factweb && !!savedFactweb;
                 return (
                     <div key={o.k} className="flex flex-col border border-slate-200 rounded-md px-3 py-2">
                         <div className="flex items-center justify-between">
@@ -94,6 +96,16 @@ export const IdentificationTab = ({
                         {megaPendingDisable && (
                             <p className="text-xs text-amber-700 mt-1.5" data-testid="mega-pending-hint">
                                 ⚠ Cliquez sur « Mettre à jour » pour désactiver l'onglet Méga.
+                            </p>
+                        )}
+                        {webPendingSave && (
+                            <p className="text-xs text-amber-700 mt-1.5" data-testid="web-pending-hint">
+                                ⚠ Cliquez sur « Mettre à jour » pour activer l'onglet Web.
+                            </p>
+                        )}
+                        {webPendingDisable && (
+                            <p className="text-xs text-amber-700 mt-1.5" data-testid="web-pending-hint">
+                                ⚠ Cliquez sur « Mettre à jour » pour désactiver l'onglet Web.
                             </p>
                         )}
                     </div>

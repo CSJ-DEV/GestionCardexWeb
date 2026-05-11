@@ -276,7 +276,16 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - Test de charge validé : 500 avocats + 1000 mandats → tous les 6 rapports en < 1 sec.
 - Tests : `iteration_12.json` — **backend 40/40 PASS** (27 nouveaux + 13 regression legacy).
 
-**Backlog après Phase 11** :
+## Phase 12 — Verrouillage onglet Web sur Facturation web (2026-02 fork, suite)
+**Implémenté** : l'onglet **Web** du Sheet d'avocat est désormais verrouillé tant que le flag `factweb` n'a pas été coché dans Identification **et** que l'avocat a été sauvegardé — comportement identique à Méga.
+- `AvocatSheet.jsx` : `disabled={!isEditing || !avocat?.factweb}` sur `TabsTrigger value="web"`. `useEffect` qui ramène sur Identification si l'onglet actif devient inaccessible.
+- `IdentificationTab.jsx` : nouveau hint `data-testid=web-pending-hint` affiché sous le switch Facturation web : « ⚠ Cliquez sur Mettre à jour pour activer/désactiver l'onglet Web. ». Prop `savedFactweb` passée depuis `AvocatSheet`.
+
+**Verrouillage cookies HTTPS** : `COOKIE_SECURE=true` ajouté à `/app/backend/.env`. Le `set-cookie` porte maintenant les flags `Secure; HttpOnly; SameSite=lax` → compatible Safari et navigateurs en mode strict.
+
+**Erreur login plus parlante** : `AuthContext.login()` distingue désormais "Connexion au serveur impossible" (ERR_NETWORK), "Erreur réseau : …" et le détail HTTP. Plus de message générique « Une erreur est survenue ».
+
+**Backlog après Phase 12** :
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
 - **P3** Streaming PDF par chunks pour gros datasets
 - **P3** Export CSV historique audit (preuve formelle pour audits Barreau/Commission)

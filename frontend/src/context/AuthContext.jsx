@@ -30,7 +30,22 @@ export function AuthProvider({ children }) {
             setUser(data);
             return { ok: true };
         } catch (e) {
-            return { ok: false, error: formatApiError(e.response?.data?.detail) || e.message };
+            // Cas 1 : pas de réponse HTTP du tout → problème réseau / CORS / pare-feu
+            if (!e.response) {
+                console.error("Login network error:", e);
+                return {
+                    ok: false,
+                    error: e.code === "ERR_NETWORK"
+                        ? "Connexion au serveur impossible. Vérifiez votre réseau ou les cookies tiers de votre navigateur."
+                        : `Erreur réseau : ${e.message}`,
+                };
+            }
+            // Cas 2 : réponse HTTP avec détail (401 invalides, 429 verrou, etc.)
+            const detail = e.response?.data?.detail;
+            const status = e.response?.status;
+            const msg = formatApiError(detail);
+            console.error(`Login HTTP ${status}:`, detail);
+            return { ok: false, error: msg };
         }
     };
 

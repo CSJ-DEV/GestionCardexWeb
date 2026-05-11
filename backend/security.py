@@ -1,0 +1,112 @@
+"""Helpers d'authentification : hash mot de passe, JWT, dépendances FastAPI."""
+from __future__ import annotations
+
+import os
+from datetime import datetime, timezone, timedelta
+
+import bcrypt
+import jwt
+from fastapi import Depends, HTTPException, Request, Response
+from sqlalchemy.orm import Session
+
+from database import get_db
+from models import AppUser
+
+JWT_ALGORITHM = "HS256"
+ADMIN_LIKE = {"admin", "ti"}
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+
+
+def get_jwt_secret() -> str:
+    return os.environ["JWT_SECRET"]
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def create_access_token(user_id: str, email: str) -> str:
+    payload = {
+        "sub": user_id, "email": email, "type": "access",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=60 * 8),
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
+def create_refresh_token(user_id: str) -> str:
+    payload = {
+        "sub": user_id, "type": "refresh",
+        "exp": datetime.now(timezone.utc) + timedelta(days=7),
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
+def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    secure = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
+    response.set_cookie("access_token", access_token, httponly=True, secure=secure, samesite="lax",
+                        max_age=60 * 60 * 8, path="/")
+    response.set_cookie("refresh_token", refresh_token, httponly=True, secure=secure, samesite="lax",
+                        max_age=60 * 60 * 24 * 7, path="/")
+
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> dict:
+    token = request.cookies.get("access_token")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    try:
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Type de jeton invalide")
+        u = db.query(AppUser).filter_by(id=payload["sub"]).first()
+        if not u:
+            raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+        return {"id": u.id, "email": u.email, "name": u.name, "role": u.role}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Jeton expiré")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Jeton invalide")
+
+
+def require_role(*allowed_roles):
+    """Crée une dépendance qui n'autorise que les rôles donnés.
+    'admin' implique également 'ti' (super-utilisateur technique).
+    """
+    expanded = set(allowed_roles)
+    if "admin" in expanded:
+        expanded.add("ti")
+
+    def checker(user: dict = Depends(get_current_user)) -> dict:
+        if user.get("role") not in expanded:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        return user
+    return checker
+
+
+def funcValidNoAssSoc(no: str) -> bool:
+    """Validation Luhn du NAS canadien (port direct du VB legacy)."""
+    if not no:
+        return True
+    no = no.strip()
+    if len(no) != 9 or not no.isdigit():
+        return False
+    tot = 0
+    for i, ch in enumerate(no[:-1], start=1):
+        c = int(ch)
+        if i % 2 == 0:
+            c = c * 2
+            if c > 9:
+                c = (c // 10) + (c % 10)
+        tot += c
+    v = (10 - (tot % 10)) % 10
+    return v == int(no[-1])

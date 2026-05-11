@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 11 — Refactor server.py validation + nouveau endpoint /api/auth/change-password + page /profil. Backend : 8/8 nouveaux tests change-password PASS + 38/39 tests régression SQLAlchemy PASS (1 fail mineur non-bloquant lié au refactor : Pydantic renvoie 422 au lieu de 400 sur web-password trop court). Frontend : 12 étapes UI E2E (login admin → sidebar → navigation /profil → 3 validations client → API erreur 400 mauvais mdp → succès → logout → re-login nouveau mdp → restore → re-login Admin2026!) toutes PASS. Admin password restauré à Admin2026!, comptes TI intacts, aucun user TEST_ résiduel.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/avocats/{id}/web-password", "issue": "Mot de passe < 6 chars renvoie maintenant 422 (Pydantic) au lieu de 400 — régression sémantique mineure introduite par le refactor (mega_inhab.py utilise WebPasswordIn). Comportement plus correct mais casse l'assertion existante test_set_clear_web_password (test legacy à mettre à jour OU revert vers validation manuelle 400 pour rétrocompatibilité)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/profil — formulaire change-password", "issues": ["Le champ 'Nouveau mot de passe' a minLength=8 HTML5 mais la fonction submit() JS gère déjà la validation longueur. La validation HTML5 native court-circuite donc le toast custom 'Le nouveau mot de passe doit comporter au moins 8 caractères' (le browser affiche une bulle native à la place). Comportement acceptable mais incohérent avec les autres validations client (confirm-mismatch, same-as-current) qui passent par toast. Suggestion : retirer `minLength={8}` du <Input> pour laisser le JS gérer uniformément."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_change_password.py",
+    "/app/backend/tests/test_sqlalchemy_migration.py",
+    "/app/test_reports/pytest/iteration_11_results.xml"
+  ],
+  "action_items": [
+    "OPTIONNEL : aligner test_set_clear_web_password sur 422 (Pydantic) OU adapter le router web-password pour renvoyer explicitement 400 si on veut préserver le contrat antérieur.",
+    "OPTIONNEL : retirer `minLength={8}` du <Input> 'profil-input-new' pour laisser le toast JS s'afficher au lieu de la bulle native HTML5 — cohérence UX avec les 2 autres validations client."
+  ],
+  "critical_code_review_comments": [
+    "Refactor server.py 1413→124 lignes très propre : 8 routers métier + security.py + schemas.py + audit.py, aucun import circulaire détecté.",
+    "ChangePasswordIn (schemas.py) : validation min_length=8 + max_length=128 correctement appliquée → 422 sur trop court conforme à la requête.",
+    "/auth/change-password (routers/auth.py) : dépend uniquement de get_current_user (pas de require_role) → accessible à tous rôles authentifiés (admin/ti/editeur/lecteur) conforme à la spec. Test backend valide les 3 cas (editeur/lecteur/admin).",
+    "Layout.jsx : `nav-profil` placé en dehors de la liste filtrée `isAdminLike` → visible pour TOUS rôles. Ordre DOM vérifié programmatiquement : profil-before-email ✓.",
+    "Profil.jsx : utilise correctement useAuth() pour afficher les infos ; reset des 3 champs après succès ; gestion d'erreur via formatApiError ; toggle Eye/EyeOff sur les 2 champs sensibles → UX correcte.",
+    "Sécurité : password_hash bcrypt $2b$, JWT HS256 httpOnly cookies, route change-password vérifie verify_password() AVANT update, refuse new==current (400) → conforme aux bonnes pratiques."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_change_password.py (NEW — 8 tests change-password endpoint)"
+  ],
+  "success_rate": {
+    "backend": "97.9% (46/47 — 8/8 change-password + 38/39 régression SQLAlchemy ; seul échec : test_set_clear_web_password attend 400 mais reçoit 422 Pydantic, régression sémantique mineure du refactor)",
+    "frontend": "100% (12/12 étapes E2E)"
+  },
+  "test_credentials": "admin@gestioncardex.qc / Admin2026! — RESTORÉ ✓. ti@gestioncardex.qc / Ti2026! — INTACT ✓. Aucun user TEST_ résiduel (cleanup confirmé par fixtures).",
+  "seed_data_creation": "Création/suppression dans le test : 1 user editeur (TEST_editeur_*) + 1 user lecteur (TEST_lecteur_*) supprimés en fin de test via finally. Quelques avocats temporaires créés par test_sqlalchemy_migration mais leurs codes sont auto-générés et le cleanup fixture supprime tout.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Le refactor server.py→routers/* est fonctionnellement complet et validé. La seule régression sémantique est web-password 422 vs 400 (à choix de l'équipe d'aligner test ou code). L'endpoint /api/auth/change-password fonctionne pour tous rôles, persiste correctement, et est protégé par auth cookie. Page /profil entièrement fonctionnelle. Pour les futurs tests régression, lancer: pytest backend/tests/test_change_password.py backend/tests/test_sqlalchemy_migration.py -v",
+  "rca of the issue": "Échec test_set_clear_web_password : avant le refactor, l'ancien server.py validait probablement manuellement la longueur du password web (renvoi 400). Le refactor a centralisé dans schemas.py WebPasswordIn(password: str = Field(..., min_length=6)) → Pydantic intercepte AVANT le handler → 422 Unprocessable Entity (comportement standard FastAPI). Mitigation : soit (a) modifier l'assertion du test pour accepter 422, soit (b) retirer min_length=6 de WebPasswordIn et faire la check manuelle dans le handler pour préserver le 400. Option (a) recommandée car 422 est sémantiquement plus correct."
+}

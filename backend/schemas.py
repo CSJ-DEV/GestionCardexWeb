@@ -1,0 +1,197 @@
+"""Schémas Pydantic partagés entre les routers."""
+from __future__ import annotations
+
+from typing import List, Optional
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+
+# ---------- Users ----------
+class UserOut(BaseModel):
+    id: str
+    email: EmailStr
+    name: str
+    role: str = "admin"
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    name: str
+    password: str = Field(..., min_length=6)
+    role: str = Field("editeur", pattern="^(admin|ti|editeur|lecteur)$")
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = Field(None, pattern="^(admin|ti|editeur|lecteur)$")
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class ChangePasswordIn(BaseModel):
+    """Pour le changement de mot de passe par l'utilisateur lui-même."""
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+# ---------- Avocats ----------
+class AdresseModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    address: Optional[str] = ""
+    adresse2: Optional[str] = ""
+    adresse3: Optional[str] = ""
+    ville: Optional[str] = ""
+    province: Optional[str] = ""
+    codepostal: Optional[str] = ""
+    telephone: Optional[str] = ""
+    telephone2: Optional[str] = ""
+    fax: Optional[str] = ""
+    email: Optional[str] = ""
+
+
+class AvocatBase(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    code: Optional[str] = Field(None, max_length=10)
+    type_code: str = Field("A")
+    nom: str = Field(..., min_length=1, max_length=80)
+    prenom: str = Field(..., min_length=1, max_length=80)
+    sectbar: Optional[str] = ""
+    mega: bool = False
+    actif: bool = True
+    attente: bool = False
+    annee_barreau: Optional[str] = ""
+    dateinscbarr: Optional[str] = ""
+    payable: bool = True
+    codebar: Optional[str] = ""
+    comm: Optional[str] = ""
+    nas: Optional[str] = ""
+    taxes: Optional[str] = ""
+    depodirect: bool = False
+    factweb: bool = False
+    confweb: bool = False
+    villerref: Optional[str] = ""
+    surveil: bool = False
+    neq: Optional[str] = ""
+    codeusager: Optional[str] = ""
+    adresse: AdresseModel = Field(default_factory=AdresseModel)
+
+
+class AvocatCreate(AvocatBase):
+    pass
+
+
+class AvocatUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    type_code: Optional[str] = None
+    nom: Optional[str] = None
+    prenom: Optional[str] = None
+    sectbar: Optional[str] = None
+    mega: Optional[bool] = None
+    actif: Optional[bool] = None
+    attente: Optional[bool] = None
+    annee_barreau: Optional[str] = None
+    taxes: Optional[str] = None
+    dateinscbarr: Optional[str] = None
+    payable: Optional[bool] = None
+    codebar: Optional[str] = None
+    comm: Optional[str] = None
+    nas: Optional[str] = None
+    depodirect: Optional[bool] = None
+    factweb: Optional[bool] = None
+    confweb: Optional[bool] = None
+    villerref: Optional[str] = None
+    surveil: Optional[bool] = None
+    neq: Optional[str] = None
+    codeusager: Optional[str] = None
+    adresse: Optional[AdresseModel] = None
+
+
+class AvocatOut(AvocatBase):
+    id: str
+    created_at: str
+    updated_at: str
+    usermodif: Optional[str] = ""
+
+
+class AvocatsListOut(BaseModel):
+    items: List[AvocatOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class StatsOut(BaseModel):
+    total: int
+    actifs: int
+    inactifs: int
+    mega: int
+    nouveaux_30j: int
+
+
+# ---------- Méga + Inhab ----------
+class InfoMegaIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    sectbar: Optional[str] = ""
+    districthab: Optional[str] = ""
+    francais: bool = True
+    anglais: bool = False
+    autres: Optional[str] = ""
+    experience: Optional[int] = 0
+    details: Optional[str] = ""
+    art486: bool = False
+    art672: bool = False
+    art684: bool = False
+    commentaire: Optional[str] = ""
+    dateinsc: Optional[str] = ""
+    districts: List[int] = Field(default_factory=list)
+    tous_districts: bool = False
+
+
+class InhabIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    datedeb: str
+    datefin: Optional[str] = ""
+    comm: Optional[str] = ""
+
+
+# ---------- Mandats ----------
+class MandatBase(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    avocat_id: str
+    requerant: str = ""
+    article: str = "486.3"
+    date_ordonnance: Optional[str] = ""
+    date_emission: Optional[str] = ""
+    numero: str = ""
+    groupe: str = "Pratique Privée"
+    commentaire: Optional[str] = ""
+
+
+class MandatUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    requerant: Optional[str] = None
+    article: Optional[str] = None
+    date_ordonnance: Optional[str] = None
+    date_emission: Optional[str] = None
+    numero: Optional[str] = None
+    groupe: Optional[str] = None
+    commentaire: Optional[str] = None
+
+
+# ---------- Connexions ----------
+class ConnexionTestPayload(BaseModel):
+    type: str
+    server: str
+    port: Optional[int] = None
+    user: Optional[str] = ""
+    password: Optional[str] = ""
+    database: Optional[str] = ""
+
+
+# ---------- Web password ----------
+class WebPasswordIn(BaseModel):
+    password: str = Field(..., min_length=6)

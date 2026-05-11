@@ -246,7 +246,25 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - `/app/memory/SCHEMAS_SQL_LEGACY.md` : références mises à jour CardAvo/StaticPc/Art52.
 - `/app/memory/TABLES_AJOUTEES_APP.md` : ajout de la table Mandats (T-SQL fournie pour SQL Server).
 
-**Backlog après Phase 9** :
+## Phase 10 — Refactor server.py + Page Profil (2026-02 fork, suite)
+**Implémenté** :
+- **server.py 1413 → 124 lignes** (orchestrateur minimal). Code métier éclaté en :
+  - `security.py` (hash, JWT, dépendances FastAPI, Luhn NAS)
+  - `schemas.py` (tous les Pydantic models)
+  - `audit.py` (write_audit + sérialiseurs ORM→dict)
+  - `routers/auth.py`, `avocats.py`, `adresses.py`, `mega_inhab.py`, `mandats.py`, `rapports.py`, `users.py`, `connexions.py`
+- **Nouveau endpoint** `PUT /api/auth/change-password` : tout utilisateur authentifié peut changer son propre mot de passe (current_password + new_password ≥ 8 chars). Vérifie l'ancien mot de passe, refuse si identique au nouveau.
+- **Nouvelle page** `/profil` accessible à tous les rôles. Affiche carte "Informations" (nom/courriel/rôle avec badge) + formulaire change-password (3 champs + Eye/EyeOff toggle, validations client identiques au serveur).
+- **Lien sidebar** "Mon profil" (`data-testid=nav-profil`) ajouté juste au-dessus de l'email et du bouton de déconnexion.
+- **WebPasswordIn** Pydantic remplace l'ancien `payload: dict` (validation min_length=6 propre).
+- **Tests** : `iteration_11.json` — backend 46/47 (97.9%) + frontend 12/12 (100%). Le seul fail est un changement sémantique 400→422 sur web-password (validation Pydantic plus stricte).
+
+**Cloisonnement Admin/TI** (Phase 9b — déjà appliqué) :
+- Admin (non-TI) ne voit pas les comptes TI dans la liste
+- Admin ne peut pas créer/modifier/supprimer/promouvoir au rôle TI
+- Côté UI : option "TI" cachée du sélecteur de rôle pour les non-TI
+
+**Backlog après Phase 10** :
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
 - **P3** Streaming PDF par chunks pour gros datasets
 - **P3** Export CSV historique audit (preuve formelle pour audits Barreau/Commission)

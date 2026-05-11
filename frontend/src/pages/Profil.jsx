@@ -134,7 +134,6 @@ export default function Profil() {
                                         value={next}
                                         onChange={(e) => setNext(e.target.value)}
                                         required
-                                        minLength={8}
                                         autoComplete="new-password"
                                         className="rounded-md pr-10"
                                         data-testid="profil-input-new"
@@ -158,7 +157,6 @@ export default function Profil() {
                                     value={confirm}
                                     onChange={(e) => setConfirm(e.target.value)}
                                     required
-                                    minLength={8}
                                     autoComplete="new-password"
                                     className="rounded-md"
                                     data-testid="profil-input-confirm"

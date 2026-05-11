@@ -131,7 +131,9 @@ export default function Utilisateurs() {
                                 <SelectTrigger className="rounded-md" data-testid="user-select-role"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="admin">Administrateur</SelectItem>
-                                    <SelectItem value="ti">Technicien TI (admin + connexions)</SelectItem>
+                                    {me?.role === "ti" && (
+                                        <SelectItem value="ti">Technicien TI (admin + connexions)</SelectItem>
+                                    )}
                                     <SelectItem value="editeur">Éditeur</SelectItem>
                                     <SelectItem value="lecteur">Lecteur (lecture seule)</SelectItem>
                                 </SelectContent>

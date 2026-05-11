@@ -704,7 +704,11 @@ def delete_adresse(avocat_id: str, adresse_id: str,
 # ---------- Users CRUD ----------
 @api_router.get("/users")
 def list_users(user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    rows = db.query(AppUser).limit(500).all()
+    q = db.query(AppUser)
+    # Cloisonnement : un admin (non-TI) ne voit pas les comptes TI.
+    if user.get("role") != "ti":
+        q = q.filter(AppUser.role != "ti")
+    rows = q.limit(500).all()
     return [{"id": u.id, "email": u.email, "name": u.name or "", "role": u.role,
              "created_at": u.created_at} for u in rows]
 
@@ -712,6 +716,9 @@ def list_users(user: dict = Depends(require_role("admin")), db: Session = Depend
 @api_router.post("/users", status_code=201)
 def create_user(payload: UserCreate, user: dict = Depends(require_role("admin")),
                 db: Session = Depends(get_db)):
+    # Cloisonnement : seul un TI peut créer un autre TI.
+    if payload.role == "ti" and user.get("role") != "ti":
+        raise HTTPException(status_code=403, detail="Seul un Technicien TI peut créer un compte TI")
     email = payload.email.lower()
     if db.query(AppUser).filter_by(email=email).first():
         raise HTTPException(status_code=409, detail="Courriel déjà utilisé")
@@ -728,6 +735,12 @@ def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(require_
     u = db.query(AppUser).filter_by(id=user_id).first()
     if not u:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    # Cloisonnement : un admin (non-TI) ne peut ni voir ni modifier un compte TI.
+    if u.role == "ti" and user.get("role") != "ti":
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    # Cloisonnement : un admin (non-TI) ne peut pas promouvoir quelqu'un au rôle TI.
+    if payload.role == "ti" and user.get("role") != "ti":
+        raise HTTPException(status_code=403, detail="Seul un Technicien TI peut attribuer le rôle TI")
     if payload.name is not None:
         u.name = payload.name
     if payload.role is not None:
@@ -745,6 +758,9 @@ def delete_user(user_id: str, user: dict = Depends(require_role("admin")),
         raise HTTPException(status_code=400, detail="Impossible de supprimer son propre compte")
     u = db.query(AppUser).filter_by(id=user_id).first()
     if not u:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    # Cloisonnement : un admin (non-TI) ne peut pas supprimer un compte TI.
+    if u.role == "ti" and user.get("role") != "ti":
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     db.delete(u)
     db.commit()

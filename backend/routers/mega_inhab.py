@@ -192,3 +192,79 @@ def list_audit(avocat_id: str, user: dict = Depends(require_role("admin")),
               "user_email": r.user_email, "summary": r.summary or "",
               "timestamp": r.timestamp} for r in rows]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@audit_router.get("/{avocat_id}/audit/export.csv")
+def export_audit_csv(avocat_id: str, user: dict = Depends(require_role("admin")),
+                     db: Session = Depends(get_db)):
+    """Export CSV de l'historique complet d'un avocat — streamé pour gros volumes.
+
+    Format Excel-compatible : BOM UTF-8 + séparateur `;` (alternative `,` standard).
+    Colonnes : Date, Action, Utilisateur, Résumé. Streaming via yield_per(500).
+    """
+    import csv
+    import io
+    from datetime import datetime
+    from fastapi.responses import StreamingResponse
+    from models import AuditLog, Avocat
+
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    label = f"{avo.code or 'NA'}_{avo.nom}" if avo else "inconnu"
+    label = "".join(c if c.isalnum() or c in "._-" else "_" for c in label)
+
+    action_label = {
+        "create": "Création", "update": "Modification", "delete": "Suppression",
+        "adresse_create": "Adresse ajoutée", "adresse_update": "Adresse modifiée",
+        "adresse_delete": "Adresse supprimée",
+        "mega_update": "Méga", "mega_delete": "Méga supprimé",
+        "inhab_create": "Inhabilité ajoutée", "inhab_update": "Inhabilité modifiée",
+        "inhab_delete": "Inhabilité supprimée",
+        "web_password_set": "Mot de passe web défini",
+        "web_password_clear": "Mot de passe web effacé",
+    }
+
+    def gen():
+        # BOM UTF-8 pour qu'Excel ouvre correctement les accents
+        yield "\ufeff".encode("utf-8")
+        buf = io.StringIO()
+        w = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        w.writerow(["Date", "Heure", "Action", "Code action", "Utilisateur", "Résumé"])
+        yield buf.getvalue().encode("utf-8")
+        buf.seek(0); buf.truncate(0)
+
+        q = (db.query(AuditLog).filter_by(avocat_id=avocat_id)
+                              .order_by(desc(AuditLog.timestamp))
+                              .yield_per(500))
+        count = 0
+        for r in q:
+            ts = r.timestamp or ""
+            try:
+                d = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                date_str = d.strftime("%Y-%m-%d")
+                heure_str = d.strftime("%H:%M:%S")
+            except (ValueError, AttributeError):
+                date_str, heure_str = ts, ""
+            w.writerow([
+                date_str, heure_str,
+                action_label.get(r.action, r.action),
+                r.action,
+                r.user_email or "système",
+                (r.summary or "").replace("\n", " ").replace("\r", " "),
+            ])
+            count += 1
+            if count % 100 == 0:
+                yield buf.getvalue().encode("utf-8")
+                buf.seek(0); buf.truncate(0)
+        if buf.tell():
+            yield buf.getvalue().encode("utf-8")
+
+    filename = f"historique_{label}_{datetime.now().strftime('%Y%m%d')}.csv"
+    return StreamingResponse(
+        gen(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )

@@ -15,7 +15,7 @@ import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Database, Plus, Pencil, Trash2, CheckCircle2, XCircle, Lock, Server, Download } from "lucide-react";
+import { Database, Plus, Pencil, Trash2, CheckCircle2, XCircle, Lock, Server, Download, PlugZap } from "lucide-react";
 import { toast } from "sonner";
 
 const TYPE_LABEL = { mongodb: "MongoDB", sqlserver: "SQL Server", sqlite: "SQLite (fichier local)" };
@@ -29,6 +29,8 @@ export default function Connexions() {
     const [testing, setTesting] = useState(false);
     const [testResult, setTestResult] = useState(null);
     const [confirmDelete, setConfirmDelete] = useState(null);
+    // Set des IDs en cours de test direct depuis la liste (1 clic)
+    const [inlineTesting, setInlineTesting] = useState(new Set());
 
     const fetchAll = async () => {
         setLoading(true);
@@ -127,6 +129,27 @@ export default function Connexions() {
         }
     };
 
+    // Test direct depuis la liste (1 clic) — utilise les credentials stockés côté BDD.
+    const handleInlineTest = async (conn) => {
+        setInlineTesting((s) => new Set(s).add(conn.id));
+        try {
+            const { data } = await api.post(`/connexions/${conn.id}/test`);
+            if (data?.ok) {
+                toast.success(`${conn.name} : ${data.message || "Connexion réussie"}`);
+            } else {
+                toast.error(`${conn.name} : ${data?.message || "Échec"}`);
+            }
+        } catch (err) {
+            toast.error(`${conn.name} : ${formatApiError(err.response?.data?.detail) || "Erreur"}`);
+        } finally {
+            setInlineTesting((s) => {
+                const next = new Set(s);
+                next.delete(conn.id);
+                return next;
+            });
+        }
+    };
+
     const isPrimary = !!editing?.is_primary;
     const restricted = editing?.id && isPrimary; // primaire : seule la description est éditable
 
@@ -182,6 +205,16 @@ export default function Connexions() {
                                 </div>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Tester la connexion"
+                                    disabled={inlineTesting.has(c.id)}
+                                    onClick={() => handleInlineTest(c)}
+                                    data-testid={`inline-test-connexion-${c.id}`}
+                                >
+                                    <PlugZap size={14} className={inlineTesting.has(c.id) ? "text-slate-300 animate-pulse" : "text-emerald-700"} />
+                                </Button>
                                 {c.type === "sqlite" && (
                                     <Button
                                         variant="ghost"

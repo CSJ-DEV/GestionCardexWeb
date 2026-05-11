@@ -285,7 +285,14 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 
 **Erreur login plus parlante** : `AuthContext.login()` distingue désormais "Connexion au serveur impossible" (ERR_NETWORK), "Erreur réseau : …" et le détail HTTP. Plus de message générique « Une erreur est survenue ».
 
-**Backlog après Phase 12** :
+## Phase 13 — Tester en 1 clic + Export CSV audit (2026-02 fork, suite)
+**Implémenté** :
+- **Page Connexions** : nouveau bouton "Tester" (icône `PlugZap` verte) directement sur chaque ligne, à gauche du bouton Modifier. 1 clic suffit pour tester, le toast affiche le résultat (succès vert ou erreur rouge). Indicateur de chargement par ligne via `inlineTesting: Set<id>`.
+- **Export CSV historique audit** :
+  - Backend : nouvel endpoint `GET /api/avocats/{id}/audit/export.csv` (admin only). Streaming par batches via `yield_per(500)`. Sortie Excel-compatible : BOM UTF-8 + séparateur `;`. Colonnes : Date, Heure, Action (libellé FR), Code action, Utilisateur, Résumé. Filename auto : `historique_<code>_<nom>_<YYYYMMDD>.csv`.
+  - Frontend `HistoriqueTab.jsx` : bouton "Exporter CSV" en tête de liste. Téléchargement Blob côté navigateur. Toast de confirmation.
+
+**Backlog après Phase 13** :
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
 - **P3** Streaming PDF par chunks pour gros datasets
 - **P3** Export CSV historique audit (preuve formelle pour audits Barreau/Commission)

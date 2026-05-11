@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import { toast } from "sonner";
 
 const PAGE_SIZE = 20;
 
@@ -31,6 +33,32 @@ export const HistoriqueTab = ({ avocatId }) => {
     const [items, setItems] = useState(null);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
+    const [exporting, setExporting] = useState(false);
+
+    const handleExportCsv = async () => {
+        if (!avocatId) return;
+        setExporting(true);
+        try {
+            const res = await api.get(`/avocats/${avocatId}/audit/export.csv`, { responseType: "blob" });
+            const cd = res.headers["content-disposition"] || "";
+            const m = cd.match(/filename="([^"]+)"/);
+            const filename = m ? m[1] : `historique_${avocatId}.csv`;
+            const url = window.URL.createObjectURL(new Blob([res.data], { type: "text/csv;charset=utf-8" }));
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+            toast.success("Historique exporté");
+        } catch (err) {
+            console.error("Export CSV failed:", err);
+            toast.error("Export impossible");
+        } finally {
+            setExporting(false);
+        }
+    };
 
     useEffect(() => {
         if (!avocatId) {
@@ -78,9 +106,22 @@ export const HistoriqueTab = ({ avocatId }) => {
 
     return (
         <div className="space-y-3" data-testid="hist-list">
-            <p className="text-xs text-slate-500" data-testid="hist-count">
-                {total} entrée{total > 1 ? "s" : ""} au total — page {page} sur {totalPages}.
-            </p>
+            <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-500" data-testid="hist-count">
+                    {total} entrée{total > 1 ? "s" : ""} au total — page {page} sur {totalPages}.
+                </p>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleExportCsv}
+                    disabled={exporting}
+                    className="rounded-md h-7 text-xs"
+                    data-testid="hist-export-csv"
+                >
+                    <Download size={12} className="mr-1.5" />
+                    {exporting ? "Préparation…" : "Exporter CSV"}
+                </Button>
+            </div>
             <div className="border border-slate-200 rounded-md divide-y divide-slate-100 overflow-hidden">
                 {items.map((it) => {
                     const meta = ACTION_LABEL[it.action] || { label: it.action, className: "bg-slate-100 text-slate-800" };

@@ -264,7 +264,19 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - Admin ne peut pas créer/modifier/supprimer/promouvoir au rôle TI
 - Côté UI : option "TI" cachée du sélecteur de rôle pour les non-TI
 
-**Backlog après Phase 10** :
+## Phase 11 — Streaming PDF + Batching DB (2026-02 fork, suite)
+**Implémenté** :
+- Nouveau module `/app/backend/streaming.py` :
+  - `chunk_bytes(data, chunk_size=64KB)` : générateur qui yield les bytes par paquets de 64 Ko (évite de garder tout le PDF dans le buffer de réponse de Starlette).
+  - `pdf_streaming_headers(filename, total_bytes)` : retourne les en-têtes HTTP idéaux pour le streaming (`Content-Length` pour barre de progression, `Cache-Control: no-store`, `X-Accel-Buffering: no` pour bypass nginx buffering).
+- `routers/rapports.py` réécrit :
+  - `yield_per(500)` sur toutes les requêtes Mandats/Avocats (économise la RAM Python sur > 10k rangées).
+  - Préchargement batché des relations `InfoMega` + `InfoDistrict` via `IN (...)` au lieu de N requêtes individuelles → **passage de O(2N) à O(2 × N/500) requêtes SQL**.
+  - Tous les rapports utilisent le helper `_stream_pdf()` qui chunk + applique les headers.
+- Test de charge validé : 500 avocats + 1000 mandats → tous les 6 rapports en < 1 sec.
+- Tests : `iteration_12.json` — **backend 40/40 PASS** (27 nouveaux + 13 regression legacy).
+
+**Backlog après Phase 11** :
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
 - **P3** Streaming PDF par chunks pour gros datasets
 - **P3** Export CSV historique audit (preuve formelle pour audits Barreau/Commission)

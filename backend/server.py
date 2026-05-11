@@ -93,6 +93,18 @@ def on_startup():
             db.commit()
             logger.info(f"Compte TI créé: {ti_email}")
 
+        # Seed comptes de test (éditeur + lecteur) — idempotent
+        for email, name, role, pwd in [
+            ("editeur@gestioncardex.qc", "Éditeur", "editeur", "Editeur2026!"),
+            ("lecteur@gestioncardex.qc", "Lecteur", "lecteur", "Lecteur2026!"),
+        ]:
+            if not db.query(AppUser).filter_by(email=email).first():
+                db.add(AppUser(id=str(uuid.uuid4()), email=email,
+                               password_hash=hash_password(pwd),
+                               name=name, role=role, created_at=now_iso()))
+                db.commit()
+                logger.info(f"Compte de test créé: {email} ({role})")
+
         # Seed connexions SQLite
         sqlite_seeds = [
             {"name": "CardAvo (SQLite local)", "file": "sqlite_dbs/CardAvo.db", "primary": True,

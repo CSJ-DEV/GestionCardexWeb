@@ -1,4 +1,9 @@
-"""Routes Connexions : catalogue des BDD (MongoDB / SQL Server / SQLite)."""
+"""Routes Connexions : catalogue des BDD (MongoDB / SQL Server / SQLite).
+
+⚠️ Accès STRICTEMENT réservé au rôle TI (Technicien). Les administrateurs n'y
+ont pas accès — les connexions BDD sont une zone technique sensible
+(chaînes de connexion + mots de passe chiffrés).
+"""
 from __future__ import annotations
 
 import uuid
@@ -32,13 +37,13 @@ def _conn_to_out(c: Connexion) -> dict:
 
 
 @router.get("")
-def list_connexions(user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def list_connexions(user: dict = Depends(require_role("ti")), db: Session = Depends(get_db)):
     rows = db.query(Connexion).order_by(asc(Connexion.name)).all()
     return [_conn_to_out(c) for c in rows]
 
 
 @router.get("/{conn_id}")
-def get_connexion(conn_id: str, user: dict = Depends(require_role("admin")),
+def get_connexion(conn_id: str, user: dict = Depends(require_role("ti")),
                   db: Session = Depends(get_db)):
     c = db.query(Connexion).filter_by(id=conn_id).first()
     if not c:
@@ -47,7 +52,7 @@ def get_connexion(conn_id: str, user: dict = Depends(require_role("admin")),
 
 
 @router.post("", status_code=201)
-def create_connexion(payload: ConnexionCreate, user: dict = Depends(require_role("admin")),
+def create_connexion(payload: ConnexionCreate, user: dict = Depends(require_role("ti")),
                      db: Session = Depends(get_db)):
     now = now_iso()
     pwd = (payload.password or "").strip()
@@ -66,7 +71,7 @@ def create_connexion(payload: ConnexionCreate, user: dict = Depends(require_role
 
 @router.put("/{conn_id}")
 def update_connexion(conn_id: str, payload: ConnexionUpdate,
-                     user: dict = Depends(require_role("admin")),
+                     user: dict = Depends(require_role("ti")),
                      db: Session = Depends(get_db)):
     c = db.query(Connexion).filter_by(id=conn_id).first()
     if not c:
@@ -88,7 +93,7 @@ def update_connexion(conn_id: str, payload: ConnexionUpdate,
 
 
 @router.delete("/{conn_id}")
-def delete_connexion(conn_id: str, user: dict = Depends(require_role("admin")),
+def delete_connexion(conn_id: str, user: dict = Depends(require_role("ti")),
                      db: Session = Depends(get_db)):
     c = db.query(Connexion).filter_by(id=conn_id).first()
     if not c:
@@ -101,7 +106,7 @@ def delete_connexion(conn_id: str, user: dict = Depends(require_role("admin")),
 
 
 @router.get("/{conn_id}/download")
-def download_sqlite_file(conn_id: str, user: dict = Depends(require_role("admin")),
+def download_sqlite_file(conn_id: str, user: dict = Depends(require_role("ti")),
                          db: Session = Depends(get_db)):
     c = db.query(Connexion).filter_by(id=conn_id).first()
     if not c:
@@ -116,7 +121,7 @@ def download_sqlite_file(conn_id: str, user: dict = Depends(require_role("admin"
 
 
 @router.post("/{conn_id}/test")
-def test_existing_connexion(conn_id: str, user: dict = Depends(require_role("admin")),
+def test_existing_connexion(conn_id: str, user: dict = Depends(require_role("ti")),
                             db: Session = Depends(get_db)):
     c = db.query(Connexion).filter_by(id=conn_id).first()
     if not c:
@@ -128,7 +133,7 @@ def test_existing_connexion(conn_id: str, user: dict = Depends(require_role("adm
 
 @router.post("/test")
 def test_arbitrary_connexion(payload: ConnexionTestPayload,
-                             user: dict = Depends(require_role("admin"))):
+                             user: dict = Depends(require_role("ti"))):
     return test_connection(
         c_type=payload.type, server=payload.server, port=payload.port,
         user=payload.user or "", password=payload.password or "", database=payload.database or "",

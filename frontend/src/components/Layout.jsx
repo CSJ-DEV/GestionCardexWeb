@@ -10,13 +10,14 @@ export default function Layout() {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const isAdminLike = user?.role === "admin" || user?.role === "ti";
+    const isTi = user?.role === "ti";
 
     const navItems = [
         { to: "/", icon: LayoutGrid, label: "Tableau de bord", testId: "nav-dashboard" },
         { to: "/avocats", icon: Users, label: "Avocats", testId: "nav-avocats" },
         { to: "/rapports", icon: FileText, label: "Rapports", testId: "nav-rapports" },
         ...(isAdminLike ? [{ to: "/utilisateurs", icon: ShieldCheck, label: "Utilisateurs", testId: "nav-users" }] : []),
-        ...(isAdminLike ? [{ to: "/connexions", icon: Database, label: "Connexions", testId: "nav-connexions" }] : []),
+        ...(isTi ? [{ to: "/connexions", icon: Database, label: "Connexions", testId: "nav-connexions" }] : []),
     ];
 
     const handleLogout = async () => {

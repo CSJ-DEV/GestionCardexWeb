@@ -203,20 +203,35 @@ export default function AvocatsList() {
                                         {a.adresse?.ville || "—"}
                                     </TableCell>
                                     <TableCell>
-                                        {a.actif ? (
-                                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100 rounded-md font-medium">
-                                                Actif
-                                            </Badge>
-                                        ) : (
-                                            <Badge className="bg-red-100 text-red-700 hover:bg-red-100 rounded-md font-medium">
-                                                Inactif
-                                            </Badge>
-                                        )}
-                                        {a.mega && (
-                                            <Badge className="ml-1 bg-violet-100 text-violet-700 hover:bg-violet-100 rounded-md font-medium">
-                                                Méga
-                                            </Badge>
-                                        )}
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                            {a.actif ? (
+                                                <Badge className="bg-green-100 text-green-700 hover:bg-green-100 rounded-md font-medium">
+                                                    Actif
+                                                </Badge>
+                                            ) : (
+                                                <Badge className="bg-red-100 text-red-700 hover:bg-red-100 rounded-md font-medium">
+                                                    Inactif
+                                                </Badge>
+                                            )}
+                                            {a.mega && (
+                                                <Badge
+                                                    title="Avocat inscrit au programme Méga"
+                                                    data-testid={`badge-mega-${a.id}`}
+                                                    className="bg-violet-100 text-violet-700 hover:bg-violet-100 rounded-md font-medium"
+                                                >
+                                                    Méga
+                                                </Badge>
+                                            )}
+                                            {a.factweb && (
+                                                <Badge
+                                                    title="Facturation web activée"
+                                                    data-testid={`badge-web-${a.id}`}
+                                                    className="bg-sky-100 text-sky-700 hover:bg-sky-100 rounded-md font-medium"
+                                                >
+                                                    Web
+                                                </Badge>
+                                            )}
+                                        </div>
                                     </TableCell>
                                     <TableCell
                                         className="text-right space-x-1"

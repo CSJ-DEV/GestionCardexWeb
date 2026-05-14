@@ -180,11 +180,14 @@ audit_router = APIRouter(prefix="/avocats", tags=["audit"])
 @audit_router.get("/{avocat_id}/audit")
 def list_audit(avocat_id: str, user: dict = Depends(require_role("admin")),
                db: Session = Depends(get_db),
-               page: int = 1, page_size: int = 20):
+               page: int = 1, page_size: int = 20,
+               action: str = ""):
     from models import AuditLog
     page = max(page, 1)
     page_size = min(max(page_size, 1), 200)
     base = db.query(AuditLog).filter_by(avocat_id=avocat_id)
+    if action:
+        base = base.filter(AuditLog.action == action)
     total = base.count()
     rows = (base.order_by(desc(AuditLog.timestamp))
                 .offset((page - 1) * page_size).limit(page_size).all())
@@ -196,7 +199,7 @@ def list_audit(avocat_id: str, user: dict = Depends(require_role("admin")),
 
 @audit_router.get("/{avocat_id}/audit/export.csv")
 def export_audit_csv(avocat_id: str, user: dict = Depends(require_role("admin")),
-                     db: Session = Depends(get_db)):
+                     db: Session = Depends(get_db), action: str = ""):
     """Export CSV de l'historique complet d'un avocat — streamé pour gros volumes.
 
     Format Excel-compatible : BOM UTF-8 + séparateur `;` (alternative `,` standard).
@@ -235,6 +238,8 @@ def export_audit_csv(avocat_id: str, user: dict = Depends(require_role("admin"))
         q = (db.query(AuditLog).filter_by(avocat_id=avocat_id)
                               .order_by(desc(AuditLog.timestamp))
                               .yield_per(500))
+        if action:
+            q = q.filter(AuditLog.action == action)
         count = 0
         for r in q:
             ts = r.timestamp or ""

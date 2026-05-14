@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 
@@ -33,13 +34,18 @@ export const HistoriqueTab = ({ avocatId }) => {
     const [items, setItems] = useState(null);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
+    const [actionFilter, setActionFilter] = useState("all");
     const [exporting, setExporting] = useState(false);
 
     const handleExportCsv = async () => {
         if (!avocatId) return;
         setExporting(true);
         try {
-            const res = await api.get(`/avocats/${avocatId}/audit/export.csv`, { responseType: "blob" });
+            const params = actionFilter !== "all" ? { action: actionFilter } : {};
+            const res = await api.get(`/avocats/${avocatId}/audit/export.csv`, {
+                responseType: "blob",
+                params,
+            });
             const cd = res.headers["content-disposition"] || "";
             const m = cd.match(/filename="([^"]+)"/);
             const filename = m ? m[1] : `historique_${avocatId}.csv`;
@@ -68,7 +74,9 @@ export const HistoriqueTab = ({ avocatId }) => {
         }
         let cancelled = false;
         setItems(null);
-        api.get(`/avocats/${avocatId}/audit`, { params: { page, page_size: PAGE_SIZE } })
+        const params = { page, page_size: PAGE_SIZE };
+        if (actionFilter !== "all") params.action = actionFilter;
+        api.get(`/avocats/${avocatId}/audit`, { params })
             .then(({ data }) => {
                 if (cancelled) return;
                 const t = data.total || 0;
@@ -85,10 +93,10 @@ export const HistoriqueTab = ({ avocatId }) => {
                 setTotal(0);
             });
         return () => { cancelled = true; };
-    }, [avocatId, page]);
+    }, [avocatId, page, actionFilter]);
 
-    // Reset à la page 1 quand on change d'avocat
-    useEffect(() => { setPage(1); }, [avocatId]);
+    // Reset à la page 1 quand on change d'avocat ou de filtre
+    useEffect(() => { setPage(1); }, [avocatId, actionFilter]);
 
     if (items === null) {
         return <div className="text-sm text-slate-500 py-6 text-center">Chargement…</div>;
@@ -96,25 +104,32 @@ export const HistoriqueTab = ({ avocatId }) => {
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-    if (total === 0) {
-        return (
-            <div className="text-sm text-slate-500 text-center py-8 border border-dashed border-slate-300 rounded-md" data-testid="hist-empty">
-                Aucune modification enregistrée pour cette fiche.
-            </div>
-        );
-    }
-
     return (
         <div className="space-y-3" data-testid="hist-list">
-            <div className="flex items-center justify-between">
-                <p className="text-xs text-slate-500" data-testid="hist-count">
-                    {total} entrée{total > 1 ? "s" : ""} au total — page {page} sur {totalPages}.
-                </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                    <Select value={actionFilter} onValueChange={setActionFilter}>
+                        <SelectTrigger className="h-8 rounded-md text-xs w-48" data-testid="hist-filter-action">
+                            <SelectValue placeholder="Toutes les actions" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Toutes les actions</SelectItem>
+                            {Object.entries(ACTION_LABEL).map(([k, v]) => (
+                                <SelectItem key={k} value={k}>{v.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500" data-testid="hist-count">
+                        {total} entrée{total > 1 ? "s" : ""}
+                        {actionFilter !== "all" && " (filtré)"}
+                        {total > 0 && ` — page ${page} sur ${totalPages}`}
+                    </p>
+                </div>
                 <Button
                     variant="outline"
                     size="sm"
                     onClick={handleExportCsv}
-                    disabled={exporting}
+                    disabled={exporting || total === 0}
                     className="rounded-md h-7 text-xs"
                     data-testid="hist-export-csv"
                 >
@@ -122,6 +137,14 @@ export const HistoriqueTab = ({ avocatId }) => {
                     {exporting ? "Préparation…" : "Exporter CSV"}
                 </Button>
             </div>
+
+            {total === 0 ? (
+                <div className="text-sm text-slate-500 text-center py-8 border border-dashed border-slate-300 rounded-md" data-testid="hist-empty">
+                    {actionFilter === "all"
+                        ? "Aucune modification enregistrée pour cette fiche."
+                        : "Aucune entrée pour ce type d'action."}
+                </div>
+            ) : (<>
             <div className="border border-slate-200 rounded-md divide-y divide-slate-100 overflow-hidden">
                 {items.map((it) => {
                     const meta = ACTION_LABEL[it.action] || { label: it.action, className: "bg-slate-100 text-slate-800" };
@@ -164,6 +187,7 @@ export const HistoriqueTab = ({ avocatId }) => {
                     </Button>
                 </div>
             )}
+            </>)}
         </div>
     );
 };

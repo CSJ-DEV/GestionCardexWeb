@@ -15,7 +15,7 @@ import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Database, Plus, Pencil, Trash2, CheckCircle2, XCircle, Lock, Server, Download, PlugZap } from "lucide-react";
+import { Database, Plus, Pencil, Trash2, CheckCircle2, XCircle, Lock, Server, Download, PlugZap, Activity } from "lucide-react";
 import { toast } from "sonner";
 
 const TYPE_LABEL = { mongodb: "MongoDB", sqlserver: "SQL Server", sqlite: "SQLite (fichier local)" };
@@ -31,6 +31,22 @@ export default function Connexions() {
     const [confirmDelete, setConfirmDelete] = useState(null);
     // Set des IDs en cours de test direct depuis la liste (1 clic)
     const [inlineTesting, setInlineTesting] = useState(new Set());
+    // Diagnostic santé des 3 BDD
+    const [health, setHealth] = useState(null);
+    const [healthLoading, setHealthLoading] = useState(false);
+
+    const fetchHealth = async () => {
+        setHealthLoading(true);
+        try {
+            const { data } = await api.get("/system/health");
+            setHealth(data);
+        } catch (err) {
+            console.warn("Health check failed:", err);
+            setHealth({ error: true });
+        } finally {
+            setHealthLoading(false);
+        }
+    };
 
     const fetchAll = async () => {
         setLoading(true);
@@ -44,7 +60,7 @@ export default function Connexions() {
         }
     };
 
-    useEffect(() => { fetchAll(); }, []);
+    useEffect(() => { fetchAll(); fetchHealth(); }, []);
 
     const openNew = () => {
         setEditing({ ...EMPTY });
@@ -167,6 +183,55 @@ export default function Connexions() {
                     <Plus size={14} className="mr-2" /> Nouvelle connexion
                 </Button>
             </header>
+
+            {/* Carte santé système — visible pour le TI */}
+            <div className="bg-white border border-slate-200 rounded-md p-4" data-testid="system-health-card">
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                        <Activity size={16} className={health?.all_ok ? "text-emerald-600" : "text-amber-600"} />
+                        <h3 className="font-medium text-sm text-slate-900">État des bases de données</h3>
+                        {health?.mode && (
+                            <Badge className={`rounded-md text-[10px] ${health.mode === "production" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"} hover:bg-current`}>
+                                {health.mode === "production" ? "Production" : "Développement"}
+                            </Badge>
+                        )}
+                    </div>
+                    <Button variant="outline" size="sm" onClick={fetchHealth} disabled={healthLoading}
+                            className="rounded-md h-7 text-xs" data-testid="refresh-health-btn">
+                        {healthLoading ? "…" : "Rafraîchir"}
+                    </Button>
+                </div>
+                {health === null || healthLoading ? (
+                    <div className="text-xs text-slate-500">Diagnostic en cours…</div>
+                ) : health?.error ? (
+                    <div className="text-xs text-red-600">Diagnostic indisponible.</div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        {Object.entries(health.databases || {}).map(([name, info]) => (
+                            <div key={name}
+                                 className={`border rounded-md p-2.5 ${info.ok ? "border-emerald-200 bg-emerald-50/40" : "border-red-200 bg-red-50/40"}`}
+                                 data-testid={`health-${name}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="font-medium text-sm">{name}</span>
+                                    {info.ok ? (
+                                        <CheckCircle2 size={14} className="text-emerald-600" />
+                                    ) : (
+                                        <XCircle size={14} className="text-red-600" />
+                                    )}
+                                </div>
+                                <div className="text-[10px] font-mono text-slate-600 truncate" title={info.url}>
+                                    {info.dialect} · {info.url}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-1">
+                                    {info.ok
+                                        ? `Latence : ${info.latency_ms} ms${info.primary ? " · Principale" : ""}`
+                                        : info.error}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
 
             <div className="bg-white border border-slate-200 rounded-md divide-y divide-slate-100">
                 {loading ? (

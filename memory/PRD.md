@@ -308,7 +308,16 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
   - `SEED_CONNEXIONS_PROD.sql` — uniquement les connexions (alternative modulaire)
 - **Guide de déploiement complet** : `/app/memory/DEPLOIEMENT_PRODUCTION.md` (étapes 1 à 5, compte SQL, `.env`, démarrage, vérifications, rollback).
 
-**Backlog après Phase 14** :
+## Phase 15 — Diagnostics & UX list/audit (2026-02 fork, suite)
+**Implémenté** :
+- **Endpoint `GET /api/system/health`** (TI uniquement) : retourne l'état des 3 BDD avec `ok`, `latency_ms`, `dialect`, URL masquée. Utilise `describe_databases()` + un `SELECT 1` par moteur. Réponse JSON incluant `mode: development|production` et `all_ok`.
+- **Page Connexions enrichie** : nouvelle carte "État des bases de données" en tête (3 cartes côte à côte avec icône check vert / X rouge). Bouton "Rafraîchir" pour relancer le ping. Visible uniquement par le TI (la page est elle-même restreinte à ce rôle).
+- **Filtre par action sur l'onglet Historique** :
+  - Backend : paramètre `?action=<code>` ajouté à `GET /avocats/{id}/audit` ET à l'export CSV. Le filtre est respecté dans les 2 endpoints.
+  - Frontend : `<Select>` "Toutes les actions" avec les 14 actions listées (Création, Modification, Méga, Inhab ±, Adresse ±, MdP web, …). Reset auto sur page 1 quand on change de filtre.
+- **Indicateurs Méga + Web sur la liste avocats** : ajout du badge "Web" (sky-100) à côté du badge "Méga" (violet-100) existant. Layout flex-wrap pour bien gérer l'affichage sur petits écrans. Tooltips au survol (`title=...`).
+
+**Backlog après Phase 15** :
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
 - **P3** Streaming PDF par chunks pour gros datasets
 - **P3** Export CSV historique audit (preuve formelle pour audits Barreau/Commission)

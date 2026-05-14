@@ -292,7 +292,23 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
   - Backend : nouvel endpoint `GET /api/avocats/{id}/audit/export.csv` (admin only). Streaming par batches via `yield_per(500)`. Sortie Excel-compatible : BOM UTF-8 + séparateur `;`. Colonnes : Date, Heure, Action (libellé FR), Code action, Utilisateur, Résumé. Filename auto : `historique_<code>_<nom>_<YYYYMMDD>.csv`.
   - Frontend `HistoriqueTab.jsx` : bouton "Exporter CSV" en tête de liste. Téléchargement Blob côté navigateur. Toast de confirmation.
 
-**Backlog après Phase 13** :
+## Phase 14 — Auto-bascule seed dev/prod + scripts T-SQL (2026-02 fork, suite)
+**Implémenté** :
+- **`database.py` simplifié** : supporte 2 modes de configuration :
+  1. **Champs séparés** (comme dans SSMS) — `SQLSERVER_HOST` + `SQLSERVER_USER` + `SQLSERVER_PASSWORD` + `DB_CARDAVO`/`DB_STATICPC`/`DB_ART52`
+  2. **URL complète** (avancé) — `DATABASE_URL=mssql+pymssql://...`
+  3. **Fallback automatique** sur SQLite local si aucune variable n'est définie (mode Emergent dev)
+  Le mot de passe est échappé via `quote_plus()` pour gérer les caractères spéciaux. Le code reste **identique entre dev et prod** — seul `.env` change.
+- **`server.py` startup intelligent** : détecte le mode dev (SQLite) vs prod (SQL Server) et adapte le comportement :
+  - Dev → seed automatique des 4 utilisateurs et des 3 connexions SQLite
+  - Prod → **aucun seed automatique** (le DBA gère via script T-SQL). Warning loggué si tables vides.
+- **Scripts T-SQL prêts à exécuter** dans `/app/memory/` :
+  - `INIT_CARDAVO_PROD.sql` — **script unique consolidé** (4 parties : tables + utilisateurs + connexions + vérification finale). Idempotent partout.
+  - `SEED_APPUSERS_PROD.sql` — uniquement les utilisateurs (alternative modulaire)
+  - `SEED_CONNEXIONS_PROD.sql` — uniquement les connexions (alternative modulaire)
+- **Guide de déploiement complet** : `/app/memory/DEPLOIEMENT_PRODUCTION.md` (étapes 1 à 5, compte SQL, `.env`, démarrage, vérifications, rollback).
+
+**Backlog après Phase 14** :
 - **P2** Migration SQL Server → MongoDB (sCardAvo.sql, sStaticPc.sql) quand structure figée
 - **P3** Streaming PDF par chunks pour gros datasets
 - **P3** Export CSV historique audit (preuve formelle pour audits Barreau/Commission)

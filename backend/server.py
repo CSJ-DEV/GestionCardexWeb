@@ -16,7 +16,7 @@ import logging
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
-from database import engine, get_db, Base
+from database import engine, get_db, Base, DATABASE_URL
 from models import AppUser, Connexion
 from security import hash_password, now_iso, verify_password
 
@@ -68,69 +68,97 @@ def on_startup():
 
     db = next(get_db())
     try:
-        # Seed admin
-        admin_email = os.environ.get("ADMIN_EMAIL", "admin@gestioncardex.qc").lower()
-        admin_password = os.environ.get("ADMIN_PASSWORD", "Admin2026!")
-        existing = db.query(AppUser).filter_by(email=admin_email).first()
-        if not existing:
-            db.add(AppUser(id=str(uuid.uuid4()), email=admin_email,
-                           password_hash=hash_password(admin_password),
-                           name="Administrateur", role="admin", created_at=now_iso()))
-            db.commit()
-            logger.info(f"Admin créé: {admin_email}")
-        elif not verify_password(admin_password, existing.password_hash):
-            existing.password_hash = hash_password(admin_password)
-            db.commit()
-            logger.info(f"Mot de passe admin mis à jour: {admin_email}")
+        is_dev = DATABASE_URL.startswith("sqlite")
 
-        # Seed TI
-        ti_email = os.environ.get("TI_EMAIL", "ti@gestioncardex.qc").lower()
-        ti_password = os.environ.get("TI_PASSWORD", "Ti2026!")
-        if not db.query(AppUser).filter_by(email=ti_email).first():
-            db.add(AppUser(id=str(uuid.uuid4()), email=ti_email,
-                           password_hash=hash_password(ti_password),
-                           name="Technicien TI", role="ti", created_at=now_iso()))
-            db.commit()
-            logger.info(f"Compte TI créé: {ti_email}")
-
-        # Seed comptes de test (éditeur + lecteur) — idempotent
-        for email, name, role, pwd in [
-            ("editeur@gestioncardex.qc", "Éditeur", "editeur", "Editeur2026!"),
-            ("lecteur@gestioncardex.qc", "Lecteur", "lecteur", "Lecteur2026!"),
-        ]:
-            if not db.query(AppUser).filter_by(email=email).first():
-                db.add(AppUser(id=str(uuid.uuid4()), email=email,
-                               password_hash=hash_password(pwd),
-                               name=name, role=role, created_at=now_iso()))
+        # ----- Seed des comptes utilisateurs -----
+        # En production (SQL Server), les comptes sont insérés par le DBA via
+        # /app/memory/INIT_CARDAVO_PROD.sql. Le backend NE seed PAS automatiquement
+        # pour éviter d'écraser un compte créé par le DBA avec un mot de passe
+        # potentiellement modifié manuellement.
+        if is_dev:
+            # Seed admin
+            admin_email = os.environ.get("ADMIN_EMAIL", "admin@gestioncardex.qc").lower()
+            admin_password = os.environ.get("ADMIN_PASSWORD", "Admin2026!")
+            existing = db.query(AppUser).filter_by(email=admin_email).first()
+            if not existing:
+                db.add(AppUser(id=str(uuid.uuid4()), email=admin_email,
+                               password_hash=hash_password(admin_password),
+                               name="Administrateur", role="admin", created_at=now_iso()))
                 db.commit()
-                logger.info(f"Compte de test créé: {email} ({role})")
-
-        # Seed connexions SQLite
-        sqlite_seeds = [
-            {"name": "CardAvo (SQLite local)", "file": "sqlite_dbs/CardAvo.db", "primary": True,
-             "description": "Base principale de l'app — tables Avocats, Adresses, infomega, inhpra, Mandats, AppUsers, AuditLog, Connexions."},
-            {"name": "StaticPc (SQLite local)", "file": "sqlite_dbs/StaticPc.db", "primary": False,
-             "description": "Base de référence — 84 tables (codes, listes, paramètres)."},
-            {"name": "Art52 (SQLite local)", "file": "sqlite_dbs/Art52.db", "primary": False,
-             "description": "Base Article 52 — 126 tables (paiements et règlements)."},
-        ]
-        for s in sqlite_seeds:
-            if not db.query(Connexion).filter_by(name=s["name"]).first():
-                now = now_iso()
-                db.add(Connexion(id=str(uuid.uuid4()), name=s["name"], type="sqlite",
-                                 server="(fichier local)", port=None, user="",
-                                 database=s["file"], description=s["description"],
-                                 password_enc="", is_primary=s["primary"],
-                                 created_at=now, updated_at=now))
+                logger.info(f"Admin créé: {admin_email}")
+            elif not verify_password(admin_password, existing.password_hash):
+                existing.password_hash = hash_password(admin_password)
                 db.commit()
-                logger.info(f"SQLite seed: {s['name']}")
+                logger.info(f"Mot de passe admin mis à jour: {admin_email}")
 
-        # Nettoyage anciennes entrées (legacy MongoDB / nommage `s*`)
-        for name in ["MongoDB principal (en service)", "sCardAvo (SQLite local)",
-                     "sStaticPc (SQLite local)", "sArt52 (SQLite local)"]:
-            old = db.query(Connexion).filter_by(name=name).first()
-            if old:
-                db.delete(old)
-        db.commit()
+            # Seed TI
+            ti_email = os.environ.get("TI_EMAIL", "ti@gestioncardex.qc").lower()
+            ti_password = os.environ.get("TI_PASSWORD", "Ti2026!")
+            if not db.query(AppUser).filter_by(email=ti_email).first():
+                db.add(AppUser(id=str(uuid.uuid4()), email=ti_email,
+                               password_hash=hash_password(ti_password),
+                               name="Technicien TI", role="ti", created_at=now_iso()))
+                db.commit()
+                logger.info(f"Compte TI créé: {ti_email}")
+
+            # Seed comptes de test (éditeur + lecteur) — idempotent
+            for email, name, role, pwd in [
+                ("editeur@gestioncardex.qc", "Éditeur", "editeur", "Editeur2026!"),
+                ("lecteur@gestioncardex.qc", "Lecteur", "lecteur", "Lecteur2026!"),
+            ]:
+                if not db.query(AppUser).filter_by(email=email).first():
+                    db.add(AppUser(id=str(uuid.uuid4()), email=email,
+                                   password_hash=hash_password(pwd),
+                                   name=name, role=role, created_at=now_iso()))
+                    db.commit()
+                    logger.info(f"Compte de test créé: {email} ({role})")
+        else:
+            logger.info("Mode production (SQL Server) — pas de seed automatique des comptes.")
+            # Sanity check : alerter le DBA si la table AppUsers est vide.
+            if db.query(AppUser).count() == 0:
+                logger.warning(
+                    "⚠️ Aucun compte dans AppUsers en production. "
+                    "Exécutez /app/memory/INIT_CARDAVO_PROD.sql sur la base CardAvo."
+                )
+
+        # Seed connexions — UNIQUEMENT en dev (SQLite local).
+        # En production (SQL Server), les 3 connexions sont insérées par le DBA
+        # via le script T-SQL /app/memory/INIT_CARDAVO_PROD.sql. Le backend ne
+        # crée donc rien automatiquement pour ne pas polluer le catalogue.
+        if is_dev:
+            sqlite_seeds = [
+                {"name": "CardAvo (SQLite local)", "file": "sqlite_dbs/CardAvo.db", "primary": True,
+                 "description": "Base principale de l'app — tables Avocats, Adresses, infomega, inhpra, Mandats, AppUsers, AuditLog, Connexions."},
+                {"name": "StaticPc (SQLite local)", "file": "sqlite_dbs/StaticPc.db", "primary": False,
+                 "description": "Base de référence — 84 tables (codes, listes, paramètres)."},
+                {"name": "Art52 (SQLite local)", "file": "sqlite_dbs/Art52.db", "primary": False,
+                 "description": "Base Article 52 — 126 tables (paiements et règlements)."},
+            ]
+            for s in sqlite_seeds:
+                if not db.query(Connexion).filter_by(name=s["name"]).first():
+                    now = now_iso()
+                    db.add(Connexion(id=str(uuid.uuid4()), name=s["name"], type="sqlite",
+                                     server="(fichier local)", port=None, user="",
+                                     database=s["file"], description=s["description"],
+                                     password_enc="", is_primary=s["primary"],
+                                     created_at=now, updated_at=now))
+                    db.commit()
+                    logger.info(f"SQLite seed: {s['name']}")
+
+            # Nettoyage anciennes entrées (legacy MongoDB / nommage `s*`) — dev uniquement.
+            for name in ["MongoDB principal (en service)", "sCardAvo (SQLite local)",
+                         "sStaticPc (SQLite local)", "sArt52 (SQLite local)"]:
+                old = db.query(Connexion).filter_by(name=name).first()
+                if old:
+                    db.delete(old)
+            db.commit()
+        else:
+            logger.info("Mode production (SQL Server) — pas de seed automatique des connexions.")
+            # Sanity check : alerter le DBA si la table Connexions est vide.
+            if db.query(Connexion).count() == 0:
+                logger.warning(
+                    "⚠️ Aucune connexion dans Connexions en production. "
+                    "Exécutez /app/memory/INIT_CARDAVO_PROD.sql sur la base CardAvo."
+                )
     finally:
         db.close()

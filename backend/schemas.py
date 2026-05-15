@@ -1,23 +1,46 @@
 """Schémas Pydantic partagés entre les routers."""
 from __future__ import annotations
 
-from typing import List, Optional
+from datetime import date, datetime
+from typing import Any, List, Optional
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+
+def _coerce_db_values(values: Any) -> Any:
+    """Convertit UUID/datetime/date renvoyés par pyodbc (SQL Server) en str."""
+    if not isinstance(values, dict):
+        # SQLAlchemy ORM instance → on transforme en dict via __dict__
+        if hasattr(values, "__dict__"):
+            values = {k: v for k, v in values.__dict__.items() if not k.startswith("_")}
+        else:
+            return values
+    out = {}
+    for k, v in values.items():
+        if isinstance(v, UUID):
+            out[k] = str(v)
+        elif isinstance(v, datetime):
+            out[k] = v.isoformat()
+        elif isinstance(v, date):
+            out[k] = v.isoformat()
+        else:
+            out[k] = v
+    return out
 
 
 # ---------- Users ----------
 class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: str
     email: EmailStr
     name: str
     role: str = "admin"
 
-    @field_validator("id", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _coerce_id(cls, v):
-        # pyodbc renvoie UUID pour les colonnes UNIQUEIDENTIFIER de SQL Server.
-        return str(v) if v is not None else v
+    def _coerce(cls, v):
+        return _coerce_db_values(v)
 
 
 class UserCreate(BaseModel):
@@ -117,10 +140,16 @@ class AvocatUpdate(BaseModel):
 
 
 class AvocatOut(AvocatBase):
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
     id: str
     created_at: str
     updated_at: str
     usermodif: Optional[str] = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce(cls, v):
+        return _coerce_db_values(v)
 
 
 class AvocatsListOut(BaseModel):

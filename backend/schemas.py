@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 # ---------- Users ----------
@@ -12,6 +12,12 @@ class UserOut(BaseModel):
     email: EmailStr
     name: str
     role: str = "admin"
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _coerce_id(cls, v):
+        # pyodbc renvoie UUID pour les colonnes UNIQUEIDENTIFIER de SQL Server.
+        return str(v) if v is not None else v
 
 
 class UserCreate(BaseModel):

@@ -32,17 +32,18 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def create_access_token(user_id: str, email: str) -> str:
+def create_access_token(user_id, email: str) -> str:
+    # SQL Server (UNIQUEIDENTIFIER) renvoie un objet uuid.UUID via pyodbc — force str.
     payload = {
-        "sub": user_id, "email": email, "type": "access",
+        "sub": str(user_id), "email": email, "type": "access",
         "exp": datetime.now(timezone.utc) + timedelta(minutes=60 * 8),
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_id) -> str:
     payload = {
-        "sub": user_id, "type": "refresh",
+        "sub": str(user_id), "type": "refresh",
         "exp": datetime.now(timezone.utc) + timedelta(days=7),
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)

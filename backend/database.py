@@ -43,17 +43,32 @@ SQLITE_DIR = ROOT_DIR / "sqlite_dbs"
 #         Construction des URLs depuis les variables env
 # ============================================================
 def _build_sqlserver_url(db_name: str) -> str | None:
-    """Assemble une URL SQLAlchemy à partir des 4 champs (host/user/pwd/db).
+    """Assemble une URL SQLAlchemy à partir des champs SQL Server.
     Retourne None si les champs requis ne sont pas définis.
-    Le mot de passe peut être vide (compte SQL sans mdp).
+
+    Deux modes d'authentification supportés :
+    - SQL Server Authentication : SQLSERVER_USER + SQLSERVER_PASSWORD
+    - Windows Authentication    : SQLSERVER_TRUSTED=yes (compte du process)
+      → utilise pyodbc + ODBC Driver 17 for SQL Server (livré Windows).
     """
     host = os.environ.get("SQLSERVER_HOST")
+    port = os.environ.get("SQLSERVER_PORT", "1433")
+    if not (host and db_name):
+        return None
+
+    # Mode 1 : Windows Authentication (Trusted Connection) — via pyodbc
+    if os.environ.get("SQLSERVER_TRUSTED", "").lower() in ("yes", "true", "1"):
+        driver = os.environ.get("SQLSERVER_ODBC_DRIVER", "ODBC Driver 17 for SQL Server")
+        return (
+            f"mssql+pyodbc://@{host}:{port}/{db_name}"
+            f"?driver={quote_plus(driver)}&trusted_connection=yes"
+        )
+
+    # Mode 2 : SQL Server Authentication — via pymssql
     user = os.environ.get("SQLSERVER_USER")
     pwd = os.environ.get("SQLSERVER_PASSWORD", "")  # vide accepté
-    port = os.environ.get("SQLSERVER_PORT", "1433")
-    if not (host and user and db_name):
+    if not user:
         return None
-    # quote_plus échappe les caractères spéciaux (@, /, espaces…) du mot de passe
     return f"mssql+pymssql://{user}:{quote_plus(pwd)}@{host}:{port}/{db_name}"
 
 

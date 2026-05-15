@@ -45,12 +45,13 @@ SQLITE_DIR = ROOT_DIR / "sqlite_dbs"
 def _build_sqlserver_url(db_name: str) -> str | None:
     """Assemble une URL SQLAlchemy à partir des 4 champs (host/user/pwd/db).
     Retourne None si les champs requis ne sont pas définis.
+    Le mot de passe peut être vide (compte SQL sans mdp).
     """
     host = os.environ.get("SQLSERVER_HOST")
     user = os.environ.get("SQLSERVER_USER")
-    pwd = os.environ.get("SQLSERVER_PASSWORD")
+    pwd = os.environ.get("SQLSERVER_PASSWORD", "")  # vide accepté
     port = os.environ.get("SQLSERVER_PORT", "1433")
-    if not (host and user and pwd and db_name):
+    if not (host and user and db_name):
         return None
     # quote_plus échappe les caractères spéciaux (@, /, espaces…) du mot de passe
     return f"mssql+pymssql://{user}:{quote_plus(pwd)}@{host}:{port}/{db_name}"

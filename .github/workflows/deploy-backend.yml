@@ -1,0 +1,43 @@
+name: Deploy Backend to Azure App Service
+
+# Déclenche le déploiement à chaque push sur main qui modifie le backend
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:  # permet aussi un déploiement manuel depuis l'UI GitHub
+
+env:
+  AZURE_WEBAPP_NAME: cardex-api        # ⚠️ À AJUSTER : nom de votre App Service
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Zip artifact
+        working-directory: backend
+        run: zip -r ../release.zip . -x "venv/*" "__pycache__/*" "sqlite_dbs/*"
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: release.zip

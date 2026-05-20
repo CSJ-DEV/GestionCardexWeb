@@ -51,9 +51,14 @@ def create_refresh_token(user_id) -> str:
 
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     secure = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
-    response.set_cookie("access_token", access_token, httponly=True, secure=secure, samesite="lax",
+    # samesite=None requis pour cross-site (frontend et backend sur des sous-domaines différents).
+    # `None` exige `secure=True`, donc COOKIE_SECURE doit être true en prod.
+    samesite = os.environ.get("COOKIE_SAMESITE", "lax").lower()
+    if samesite == "none":
+        secure = True  # contrainte navigateur
+    response.set_cookie("access_token", access_token, httponly=True, secure=secure, samesite=samesite,
                         max_age=60 * 60 * 8, path="/")
-    response.set_cookie("refresh_token", refresh_token, httponly=True, secure=secure, samesite="lax",
+    response.set_cookie("refresh_token", refresh_token, httponly=True, secure=secure, samesite=samesite,
                         max_age=60 * 60 * 24 * 7, path="/")
 
 

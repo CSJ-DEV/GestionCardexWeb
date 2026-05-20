@@ -14,6 +14,15 @@ GO
 
 PRINT '=== Ajout des colonnes web à dbo.Avocats ===';
 
+-- 0. type_code (type de code avocat — A=avocat, N=notaire, P=stagiaire)
+IF COL_LENGTH('dbo.Avocats', 'type_code') IS NULL
+BEGIN
+    ALTER TABLE dbo.Avocats ADD type_code NVARCHAR(1) NOT NULL CONSTRAINT DF_Avocats_type_code DEFAULT 'A';
+    PRINT '  + colonne type_code ajoutée (defaut=A)';
+END
+ELSE PRINT '  · type_code déjà présente';
+GO
+
 -- 1. id (UUID app — clé naturelle pour les API REST)
 IF COL_LENGTH('dbo.Avocats', 'id') IS NULL
 BEGIN

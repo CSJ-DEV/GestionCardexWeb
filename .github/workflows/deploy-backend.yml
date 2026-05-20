@@ -22,7 +22,7 @@ jobs:
 
       - name: Zip backend folder content
         working-directory: backend
-        run: zip -r ../release.zip . -x "venv/*" "__pycache__/*" "sqlite_dbs/*" "*.pyc"
+        run: zip -r ../release.zip . -x "venv/*" "__pycache__/*" "sqlite_dbs/*" "*.pyc" ".env" "*.env"
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3

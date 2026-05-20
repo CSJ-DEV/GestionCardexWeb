@@ -55,8 +55,8 @@ export default function AvocatsList() {
             if (q.trim()) params.q = q.trim();
             if (statut !== "all") params.statut = statut;
             const { data } = await api.get("/avocats", { params });
-            setItems(data.items);
-            setTotal(data.total);
+            setItems(data?.items || []);
+            setTotal(data?.total || 0);
         } catch (e) {
             toast.error(formatApiError(e.response?.data?.detail) || "Erreur de chargement");
         } finally {

@@ -48,7 +48,7 @@ def create_adresse(avocat_id: str, payload: AdresseModel, courant: bool = False,
     if courant:
         db.query(Adresse).filter(Adresse.code == avo.code).update({"courant": "N"})
     adr = Adresse(
-        id=new_id, RowId=new_id, avocat_id=avo.id, code=avo.code,
+        id=new_id, RowId=new_id, code=avo.code,
         address=payload.address or "", adresse2=payload.adresse2 or "",
         adresse3=payload.adresse3 or "", ville=payload.ville or "",
         province=payload.province or "", codepostal=payload.codepostal or "",

@@ -58,10 +58,10 @@ class Avocat(Base):
 
 class Adresse(Base):
     __tablename__ = "Adresses"
-    id = Column(String(36), primary_key=True)  # UUID app (PK app-side)
-    RowId = Column(String(36), nullable=False)  # legacy uniqueidentifier NOT NULL
-    avocat_id = Column(String(36), index=True)  # FK logique → Avocats.id
-    code = Column(String(6))  # legacy : code avocat
+    # PK legacy : code + noseq. `id` (UUID app) sert uniquement aux API REST.
+    id = Column(String(36), primary_key=True)  # UUID app
+    RowId = Column(String(36), nullable=False)  # legacy uniqueidentifier
+    code = Column(String(6), nullable=False)  # FK legacy → Avocats.code
     # Note : legacy column "adresse" est mappée à "address" pour cohérence avec le frontend
     address = Column(String(100), default="")
     adresse2 = Column(String(30), default="")

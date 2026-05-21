@@ -125,7 +125,10 @@ def avocat_to_dict(a: Avocat, db: Optional[Session] = None) -> dict:
 def adresse_to_dict(adr: Adresse) -> dict:
     return {
         "id": adr.id,
-        "avocat_id": adr.avocat_id or "",
+        # Renvoyé pour rétrocompat front-end (l'app web utilisait avocat_id) :
+        # côté backend on n'utilise plus que `code` legacy pour la jointure.
+        "avocat_id": "",
+        "code": adr.code or "",
         "address": adr.address or "",
         "adresse2": adr.adresse2 or "",
         "adresse3": adr.adresse3 or "",

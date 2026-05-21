@@ -31,9 +31,9 @@ class Avocat(Base):
     sectbar = Column(String(100), default="")
     mega = Column(String(1), default="N")  # 'O'/'N' legacy
     actpass = Column(String(1), default="A")  # 'A'/'P' legacy (Actif/Passif)
-    dateinscbarr = Column(String(10), default="")
+    dateinscbarr = Column(String(10), default="")  # année d'inscription au barreau (ex: '2010')
     payable = Column(String(1), default="O")
-    adrcour = Column(Integer)
+    adrcour = Column(Integer)  # FK Adresses.noseq (adresse courante)
     adrnonpay = Column(Integer)
     codebar = Column(String(10), default="")
     comm = Column(String(500), default="")
@@ -50,14 +50,8 @@ class Avocat(Base):
     surveil = Column(String(1), default="N")
     neq = Column(String(10), default="")
 
-    # Colonnes app web
-    actif = Column(Boolean, default=True, nullable=False)
-    attente = Column(Boolean, default=False, nullable=False)
-    annee_barreau = Column(String(10), default="")
-    taxes = Column(String(20), default="")
+    # Colonnes app web (audit + extranet uniquement)
     web_password_hash = Column(String(100))
-    villerref = Column(String(40), default="")  # variant moderne
-    adresse_courante = Column(Text)  # JSON snapshot
     created_at = Column(String(30))
     updated_at = Column(String(30))
 

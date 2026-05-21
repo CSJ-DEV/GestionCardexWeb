@@ -40,6 +40,39 @@ def _generate_avocat_code(db: Session, type_code: str) -> str:
     return f"{type_code}{next_num:05d}"
 
 
+def _create_or_update_main_address(db: Session, a: Avocat, data: dict, user_email: str) -> None:
+    """Upsert l'adresse courante (Adresses.code = a.code, courant='O').
+
+    Met `Avocats.adrcour = Adresses.noseq` pour pointer dessus.
+    """
+    now = now_iso()
+    adr = (db.query(Adresse)
+             .filter(Adresse.code == a.code, Adresse.courant == "O")
+             .first())
+    if adr is None:
+        adr = Adresse(
+            id=str(uuid.uuid4()),
+            RowId=str(uuid.uuid4()),
+            avocat_id=a.id,
+            code=a.code,
+            courant="O",
+            dateadr=now,
+            created_at=now,
+        )
+        db.add(adr)
+    for field in ("address", "adresse2", "adresse3", "ville", "province",
+                  "codepostal", "telephone", "telephone2", "fax", "email"):
+        if field in data:
+            setattr(adr, field, data.get(field) or "")
+    adr.updated_at = now
+    adr.datemodif = now
+    adr.usermodif = user_email
+    db.flush()
+    if adr.noseq is not None:
+        a.adrcour = adr.noseq
+    db.commit()
+
+
 @router.get("", response_model=AvocatsListOut)
 def list_avocats(
     user: dict = Depends(get_current_user),
@@ -55,15 +88,15 @@ def list_avocats(
         like = f"%{q}%"
         query = query.filter(or_(Avocat.code.ilike(like), Avocat.nom.ilike(like), Avocat.prenom.ilike(like)))
     if statut == "actif":
-        query = query.filter(Avocat.actif.is_(True))
+        query = query.filter(Avocat.actpass == "A")
     elif statut == "inactif":
-        query = query.filter(Avocat.actif.is_(False))
+        query = query.filter(Avocat.actpass == "P")
     if mega is not None:
         query = query.filter(Avocat.mega == ("O" if mega else "N"))
     total = query.count()
     rows = (query.order_by(asc(Avocat.nom), asc(Avocat.prenom))
                  .offset((page - 1) * page_size).limit(page_size).all())
-    items = [AvocatOut(**avocat_to_dict(a)) for a in rows]
+    items = [AvocatOut(**avocat_to_dict(a, db)) for a in rows]
     return AvocatsListOut(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -80,8 +113,8 @@ def next_avocat_code(
 def avocats_stats(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     base = db.query(Avocat).filter(Avocat.id.isnot(None))
     total = base.count()
-    actifs = base.filter(Avocat.actif.is_(True)).count()
-    inactifs = base.filter(Avocat.actif.is_(False)).count()
+    actifs = base.filter(Avocat.actpass == "A").count()
+    inactifs = base.filter(Avocat.actpass == "P").count()
     mega = base.filter(Avocat.mega == "O").count()
     cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     nouveaux = base.filter(Avocat.created_at >= cutoff).count()
@@ -93,7 +126,7 @@ def get_avocat(avocat_id: str, user: dict = Depends(get_current_user), db: Sessi
     a = db.query(Avocat).filter_by(id=avocat_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    return AvocatOut(**avocat_to_dict(a))
+    return AvocatOut(**avocat_to_dict(a, db))
 
 
 @router.post("", response_model=AvocatOut, status_code=201)
@@ -108,7 +141,6 @@ def create_avocat(payload: AvocatCreate,
 
     new_id = str(uuid.uuid4())
     now = now_iso()
-    adr_json = json.dumps(payload.adresse.model_dump()) if payload.adresse else "{}"
 
     last_err: Optional[Exception] = None
     for _ in range(5):
@@ -117,30 +149,32 @@ def create_avocat(payload: AvocatCreate,
             code=code, id=new_id, type_code=type_code,
             nom=payload.nom, prenom=payload.prenom,
             sectbar=payload.sectbar or "",
-            mega=bool_to_yn(payload.mega), actpass="A" if payload.actif else "P",
-            actif=payload.actif, attente=payload.attente,
-            annee_barreau=payload.annee_barreau or "",
-            dateinscbarr=payload.dateinscbarr or "",
+            mega=bool_to_yn(payload.mega),
+            actpass="A" if payload.actif else "P",
+            # `dateinscbarr` reçoit l'année (`annee_barreau` est l'alias front-end).
+            dateinscbarr=(payload.annee_barreau or payload.dateinscbarr or ""),
             payable=bool_to_yn(payload.payable),
             codebar=payload.codebar or "", comm=payload.comm or "",
-            nas=payload.nas or "", taxes=payload.taxes or "",
+            nas=payload.nas or "",
             depodirect=bool_to_yn(payload.depodirect),
             factweb=bool_to_yn(payload.factweb),
             confweb=bool_to_yn(payload.confweb),
-            villerref=payload.villerref or "", villeref=payload.villerref or "",
+            villeref=payload.villerref or "",
             surveil=bool_to_yn(payload.surveil),
             neq=payload.neq or "", codeusager=payload.codeusager or "",
-            adresse_courante=adr_json,
-            created_at=now, updated_at=now,
+            created_at=now, updated_at=now, datemodif=now,
             usermodif=user.get("email", ""),
         )
         try:
             db.add(a)
             db.commit()
             db.refresh(a)
+            # Crée l'adresse principale si fournie
+            if payload.adresse and any(payload.adresse.model_dump().values()):
+                _create_or_update_main_address(db, a, payload.adresse.model_dump(), user.get("email", ""))
             write_audit(db, new_id, "create", user.get("email", ""),
                         f"Création de la fiche {code} — {payload.nom}, {payload.prenom}")
-            return AvocatOut(**avocat_to_dict(a))
+            return AvocatOut(**avocat_to_dict(a, db))
         except IntegrityError as e:
             db.rollback()
             last_err = e
@@ -162,37 +196,43 @@ def update_avocat(avocat_id: str, payload: AvocatUpdate,
         raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
 
     yn_fields = {"mega", "payable", "depodirect", "factweb", "confweb", "surveil"}
-    bool_fields = {"actif", "attente"}
-
     changed = []
     for k, v in data.items():
         if k == "adresse" and v is not None:
-            a.adresse_courante = json.dumps(v if isinstance(v, dict) else v.model_dump())
+            _create_or_update_main_address(db, a, v if isinstance(v, dict) else v.model_dump(),
+                                            user.get("email", ""))
             changed.append("adresse")
         elif k in yn_fields:
             setattr(a, k, bool_to_yn(v))
             changed.append(k)
-        elif k in bool_fields:
-            setattr(a, k, bool(v))
-            if k == "actif":
-                a.actpass = "A" if v else "P"
-            changed.append(k)
+        elif k == "actif":
+            a.actpass = "A" if v else "P"
+            changed.append("actif")
+        elif k == "annee_barreau":
+            # alias front-end → colonne legacy
+            a.dateinscbarr = v or ""
+            changed.append("annee_barreau")
         elif k == "villerref":
-            a.villerref = v or ""
             a.villeref = v or ""
-            changed.append(k)
+            changed.append("villerref")
+        elif k in {"attente", "taxes"}:
+            # Champs front-end sans équivalent legacy stocké à ce jour — ignorés
+            # (taxes viendra d'une autre BDD, attente n'est plus utilisé).
+            continue
         else:
             setattr(a, k, v)
             changed.append(k)
 
-    a.updated_at = now_iso()
+    now = now_iso()
+    a.updated_at = now
+    a.datemodif = now
     a.usermodif = user.get("email", "")
     db.commit()
     db.refresh(a)
     if changed:
         write_audit(db, avocat_id, "update", user.get("email", ""),
                     f"Modification : {', '.join(sorted(changed))}")
-    return AvocatOut(**avocat_to_dict(a))
+    return AvocatOut(**avocat_to_dict(a, db))
 
 
 @router.delete("/{avocat_id}")

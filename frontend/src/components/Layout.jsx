@@ -1,8 +1,10 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { LayoutGrid, Users, LogOut, Scale, Search, ShieldCheck, FileText, Database, UserCircle2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import api from "@/lib/api";
 
 const roleLabel = { admin: "Administrateur", ti: "Technicien TI", editeur: "Éditeur", lecteur: "Lecteur" };
 
@@ -11,6 +13,17 @@ export default function Layout() {
     const navigate = useNavigate();
     const isAdminLike = user?.role === "admin" || user?.role === "ti";
     const isTi = user?.role === "ti";
+    const [versionInfo, setVersionInfo] = useState(null);
+
+    // Charge la version applicative (visible TI uniquement)
+    useEffect(() => {
+        if (!isTi) return;
+        let cancelled = false;
+        api.get("/system/version")
+            .then(({ data }) => { if (!cancelled) setVersionInfo(data); })
+            .catch(() => { /* silencieux */ });
+        return () => { cancelled = true; };
+    }, [isTi]);
 
     const navItems = [
         { to: "/", icon: LayoutGrid, label: "Tableau de bord", testId: "nav-dashboard" },
@@ -94,6 +107,24 @@ export default function Layout() {
                     >
                         <LogOut size={14} className="mr-2" /> Déconnexion
                     </Button>
+                    {isTi && versionInfo && (
+                        <div
+                            className="mt-3 pt-3 border-t border-slate-200 text-[10px] text-slate-400 leading-tight"
+                            data-testid="ti-version-info"
+                            title="Visible uniquement par le rôle TI"
+                        >
+                            <div>Version {versionInfo.version}</div>
+                            <div>
+                                Déployé le{" "}
+                                {versionInfo.deployed_at
+                                    ? new Date(versionInfo.deployed_at).toLocaleString("fr-CA", {
+                                          dateStyle: "short",
+                                          timeStyle: "short",
+                                      })
+                                    : "—"}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </aside>
 

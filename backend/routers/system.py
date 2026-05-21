@@ -1,4 +1,4 @@
-"""Routes de diagnostic système : santé des 3 BDD.
+"""Routes de diagnostic système : santé des 3 BDD + version applicative.
 
 Accessible UNIQUEMENT au rôle TI (Technicien). Permet de vérifier visuellement
 depuis l'interface que l'app est bien connectée à chaque base et de mesurer
@@ -6,7 +6,10 @@ les latences.
 """
 from __future__ import annotations
 
+import os
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -16,6 +19,31 @@ from database import describe_databases, engine, get_secondary_engine
 from security import require_role
 
 router = APIRouter(prefix="/system", tags=["system"])
+
+# Date de dernière modification du backend = horodatage du fichier le plus récent
+# parmi server.py, models.py et les routers. Représente la version déployée.
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+APP_VERSION = "2.1.0"
+
+
+def _last_deployment_date() -> str:
+    """Retourne la date du fichier .py le plus récemment modifié dans backend/.
+
+    En production Azure App Service, c'est la date du déploiement. En local,
+    c'est la date de la dernière édition de code.
+    """
+    latest = 0.0
+    for py in _BACKEND_DIR.rglob("*.py"):
+        # Ignore venv, tests et caches Python
+        if any(part in {"venv", "__pycache__", "tests", "antenv"} for part in py.parts):
+            continue
+        try:
+            latest = max(latest, py.stat().st_mtime)
+        except OSError:
+            continue
+    if latest == 0.0:
+        return ""
+    return datetime.fromtimestamp(latest, tz=timezone.utc).isoformat()
 
 
 def _ping_engine(eng: Any) -> dict:
@@ -71,4 +99,20 @@ def system_health(user: dict = Depends(require_role("ti"))):
             }
 
     out["all_ok"] = all(d["ok"] for d in out["databases"].values())
+    out["version"] = APP_VERSION
+    out["deployed_at"] = _last_deployment_date()
+    out["server_time"] = datetime.now(timezone.utc).isoformat()
     return out
+
+
+@router.get("/version")
+def system_version(user: dict = Depends(require_role("ti"))):
+    """Retourne la version applicative et la date du dernier déploiement.
+
+    Endpoint léger (sans ping des BDD) pour affichage dans la sidebar TI.
+    """
+    return {
+        "version": APP_VERSION,
+        "deployed_at": _last_deployment_date(),
+        "server_time": datetime.now(timezone.utc).isoformat(),
+    }

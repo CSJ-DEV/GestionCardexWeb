@@ -18,7 +18,7 @@ from models import Avocat, Adresse, InfoMega, Inhpra, Mandat, InfoDistrict, bool
 from schemas import (
     AvocatCreate, AvocatUpdate, AvocatOut, AvocatsListOut, StatsOut,
 )
-from security import funcValidNoAssSoc, get_current_user, now_iso, require_role
+from security import funcValidNoAssSoc, get_current_user, now_utc, require_role
 
 logger = logging.getLogger("gestioncardex")
 router = APIRouter(prefix="/avocats", tags=["avocats"])
@@ -45,7 +45,7 @@ def _create_or_update_main_address(db: Session, a: Avocat, data: dict, user_emai
 
     Met `Avocats.adrcour = Adresses.noseq` pour pointer dessus.
     """
-    now = now_iso()
+    now = now_utc()
     adr = (db.query(Adresse)
              .filter(Adresse.code == a.code, Adresse.courant == "O")
              .first())
@@ -117,7 +117,7 @@ def avocats_stats(user: dict = Depends(get_current_user), db: Session = Depends(
     actifs = base.filter(Avocat.actpass == "A").count()
     inactifs = base.filter(Avocat.actpass == "P").count()
     mega = base.filter(Avocat.mega == "O").count()
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     nouveaux = base.filter(Avocat.created_at >= cutoff).count()
     return StatsOut(total=total, actifs=actifs, inactifs=inactifs, mega=mega, nouveaux_30j=nouveaux)
 
@@ -141,7 +141,7 @@ def create_avocat(payload: AvocatCreate,
         raise HTTPException(status_code=422, detail="type_code invalide (A/N/P)")
 
     new_id = str(uuid.uuid4())
-    now = now_iso()
+    now = now_utc()
 
     last_err: Optional[Exception] = None
     for _ in range(5):
@@ -224,7 +224,7 @@ def update_avocat(avocat_id: str, payload: AvocatUpdate,
             setattr(a, k, v)
             changed.append(k)
 
-    now = now_iso()
+    now = now_utc()
     a.updated_at = now
     a.datemodif = now
     a.usermodif = user.get("email", "")

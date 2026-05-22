@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,9 +13,19 @@ from audit import mandat_to_dict
 from database import get_db
 from models import Avocat, Mandat
 from schemas import MandatBase, MandatUpdate
-from security import get_current_user, now_iso, require_role
+from security import get_current_user, now_utc, require_role
 
 router = APIRouter(prefix="/mandats", tags=["mandats"])
+
+
+def _parse_date(s: Optional[str]):
+    """Parse une date ISO (YYYY-MM-DD) ou ISO 8601 complet en datetime. Retourne None si vide."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
 
 
 @router.get("")
@@ -28,7 +39,10 @@ def list_mandats(user: dict = Depends(get_current_user),
     if avocat_id: q = q.filter(Mandat.avocat_id == avocat_id)
     if article: q = q.filter(Mandat.article == article)
     if date_debut and date_fin:
-        q = q.filter(Mandat.date_ordonnance >= date_debut, Mandat.date_ordonnance <= date_fin)
+        d1 = _parse_date(date_debut)
+        d2 = _parse_date(date_fin)
+        if d1 and d2:
+            q = q.filter(Mandat.date_ordonnance >= d1, Mandat.date_ordonnance <= d2)
     rows = q.order_by(desc(Mandat.date_ordonnance)).limit(2000).all()
     return [mandat_to_dict(m) for m in rows]
 
@@ -38,11 +52,11 @@ def create_mandat(payload: MandatBase, user: dict = Depends(require_role("admin"
                   db: Session = Depends(get_db)):
     if not db.query(Avocat).filter_by(id=payload.avocat_id).first():
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = now_iso()
+    now = now_utc()
     m = Mandat(id=str(uuid.uuid4()), avocat_id=payload.avocat_id,
                requerant=payload.requerant, article=payload.article,
-               date_ordonnance=payload.date_ordonnance or "",
-               date_emission=payload.date_emission or "",
+               date_ordonnance=_parse_date(payload.date_ordonnance),
+               date_emission=_parse_date(payload.date_emission),
                numero=payload.numero, groupe=payload.groupe,
                commentaire=payload.commentaire or "",
                usermodif=user.get("email", ""), created_at=now, updated_at=now)
@@ -60,9 +74,13 @@ def update_mandat(mandat_id: str, payload: MandatUpdate,
     if not m:
         raise HTTPException(status_code=404, detail="Mandat introuvable")
     for k, v in payload.model_dump(exclude_unset=True).items():
-        if v is not None:
+        if v is None:
+            continue
+        if k in ("date_ordonnance", "date_emission"):
+            setattr(m, k, _parse_date(v))
+        else:
             setattr(m, k, v)
-    m.updated_at = now_iso()
+    m.updated_at = now_utc()
     db.commit()
     return {"ok": True}
 

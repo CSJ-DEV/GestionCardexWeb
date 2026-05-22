@@ -11,7 +11,7 @@ from audit import write_audit, mega_to_dict, inhab_to_dict
 from database import get_db
 from models import Avocat, InfoMega, InfoDistrict, Inhpra, bool_to_yn
 from schemas import InfoMegaIn, InhabIn, WebPasswordIn
-from security import get_current_user, hash_password, now_iso, require_role
+from security import get_current_user, hash_password, now_utc, require_role
 
 router = APIRouter(prefix="/avocats", tags=["mega-inhab-web"])
 
@@ -37,7 +37,7 @@ def upsert_mega(avocat_id: str, payload: InfoMegaIn,
     avo = db.query(Avocat).filter_by(id=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = now_iso()
+    now = now_utc()
     m = db.query(InfoMega).filter_by(avocat_id=avocat_id).first()
     if not m:
         m = InfoMega(id=str(uuid.uuid4()), avocat_id=avocat_id, code=avo.code, created_at=now)
@@ -102,7 +102,7 @@ def create_inhab(avocat_id: str, payload: InhabIn,
     avo = db.query(Avocat).filter_by(id=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = now_iso()
+    now = now_utc()
     i = Inhpra(uuid=str(uuid.uuid4()), avocat_id=avocat_id, code=avo.code,
                datedeb=payload.datedeb, datefin=payload.datefin or "",
                comm=payload.comm or "", created_at=now, updated_at=now)
@@ -124,7 +124,7 @@ def update_inhab(avocat_id: str, inhab_id: str, payload: InhabIn,
     i.datedeb = payload.datedeb
     i.datefin = payload.datefin or ""
     i.comm = payload.comm or ""
-    i.updated_at = now_iso()
+    i.updated_at = now_utc()
     db.commit()
     write_audit(db, avocat_id, "inhab_update", user.get("email", ""),
                 f"Période d'inhabilité modifiée : {payload.datedeb} → {payload.datefin or 'en cours'}")
@@ -154,7 +154,7 @@ def set_web_password(avocat_id: str, payload: WebPasswordIn,
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     avo.web_password_hash = hash_password(payload.password)
-    avo.updated_at = now_iso()
+    avo.updated_at = now_utc()
     db.commit()
     write_audit(db, avocat_id, "web_password_set", user.get("email", ""), "Mot de passe web défini")
     return {"ok": True}
@@ -167,7 +167,7 @@ def clear_web_password(avocat_id: str, user: dict = Depends(require_role("admin"
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     avo.web_password_hash = None
-    avo.updated_at = now_iso()
+    avo.updated_at = now_utc()
     db.commit()
     write_audit(db, avocat_id, "web_password_clear", user.get("email", ""), "Mot de passe web réinitialisé")
     return {"ok": True}

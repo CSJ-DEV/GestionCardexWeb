@@ -94,15 +94,23 @@ def _hydrate_batch(db: Session, batch: list[Avocat]):
 
 
 # ---------- Rapports ----------
+def _parse_date_arg(s: str):
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get("/registre97")
 def rapport_registre97(date_debut: str, date_fin: str,
                        user: dict = Depends(get_current_user),
                        db: Session = Depends(get_db)):
     avo_cache: dict[str, dict] = {}
     rows_par_article: dict[str, list[dict]] = {}
+    d1, d2 = _parse_date_arg(date_debut), _parse_date_arg(date_fin)
     # Mandats : yield_per pour ne pas charger tout en RAM si > 10k mandats
-    q = (db.query(Mandat).filter(Mandat.date_ordonnance >= date_debut,
-                                  Mandat.date_ordonnance <= date_fin)
+    q = (db.query(Mandat).filter(Mandat.date_ordonnance >= d1,
+                                  Mandat.date_ordonnance <= d2)
                           .yield_per(BATCH_SIZE))
     for m in q:
         a = _avo_for_mandat(db, m.avocat_id, avo_cache)
@@ -120,8 +128,9 @@ def rapport_registre98(date_debut: str, date_fin: str,
                        db: Session = Depends(get_db)):
     avo_cache: dict[str, dict] = {}
     rows_par_article: dict[str, list[dict]] = {}
-    q = (db.query(Mandat).filter(Mandat.date_ordonnance >= date_debut,
-                                  Mandat.date_ordonnance <= date_fin)
+    d1, d2 = _parse_date_arg(date_debut), _parse_date_arg(date_fin)
+    q = (db.query(Mandat).filter(Mandat.date_ordonnance >= d1,
+                                  Mandat.date_ordonnance <= d2)
                           .yield_per(BATCH_SIZE))
     for m in q:
         a = _avo_for_mandat(db, m.avocat_id, avo_cache)

@@ -29,7 +29,13 @@ def get_jwt_secret() -> str:
 
 
 def now_iso() -> str:
+    """ISO 8601 string. Conservée pour compatibilité (logs, payloads JSON)."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def now_utc() -> datetime:
+    """Datetime aware UTC, sans microsecondes (compatible smalldatetime/datetime2)."""
+    return datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def create_access_token(user_id, email: str) -> str:

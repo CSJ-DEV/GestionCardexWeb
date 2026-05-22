@@ -11,7 +11,7 @@ Convention :
 from __future__ import annotations
 
 from sqlalchemy import (
-    Column, Integer, String, Text, Boolean, Numeric, Index,
+    Column, Integer, String, Text, Boolean, Numeric, Index, DateTime,
 )
 
 from database import Base
@@ -37,7 +37,7 @@ class Avocat(Base):
     adrnonpay = Column(Integer)
     codebar = Column(String(10), default="")
     comm = Column(String(500), default="")
-    datemodif = Column(String(30))
+    datemodif = Column(DateTime)  # legacy smalldatetime
     nas = Column(String(9), default="")
     depodirect = Column(String(1), default="N")
     codeusager = Column(String(20), default="")
@@ -52,8 +52,8 @@ class Avocat(Base):
 
     # Colonnes app web (audit + extranet uniquement)
     web_password_hash = Column(String(100))
-    created_at = Column(String(30))
-    updated_at = Column(String(30))
+    created_at = Column(DateTime)  # datetime2(0)
+    updated_at = Column(DateTime)  # datetime2(0)
 
 
 class Adresse(Base):
@@ -73,13 +73,13 @@ class Adresse(Base):
     adremail = Column(String(50), default="")  # courriel legacy (unique)
     noseq = Column(Integer)
     courant = Column(String(1), default="N")  # 'O'/'N'
-    dateadr = Column(String(30))
+    dateadr = Column(DateTime)  # legacy smalldatetime
     poste1 = Column(String(6))
     poste2 = Column(String(6))
     usermodif = Column(String(20))
-    datemodif = Column(String(30))
-    created_at = Column(String(30))
-    updated_at = Column(String(30))
+    datemodif = Column(DateTime)  # legacy datetime
+    created_at = Column(DateTime)  # datetime2(0)
+    updated_at = Column(DateTime)  # datetime2(0)
 
 
 class InfoMega(Base):
@@ -99,13 +99,13 @@ class InfoMega(Base):
     art684 = Column(String(1), default="N")
     districthab = Column(String(100), default="")
     commentaire = Column(String(5000), default="")
-    dateinsc = Column(String(30))
+    dateinsc = Column(DateTime)  # legacy datetime
     usermodif = Column(String(20), default="")
-    datemodif = Column(String(30))
+    datemodif = Column(DateTime)  # legacy datetime
     sectbar = Column(String(100), default="")
     tous_districts = Column(Boolean, default=False)
-    created_at = Column(String(30))
-    updated_at = Column(String(30))
+    created_at = Column(DateTime)  # datetime2(0)
+    updated_at = Column(DateTime)  # datetime2(0)
 
 
 class InfoDistrict(Base):
@@ -124,11 +124,11 @@ class Inhpra(Base):
     uuid = Column(String(36), index=True)  # UUID app
     avocat_id = Column(String(36), index=True)
     code = Column(String(6))
-    datedeb = Column(String(30))
-    datefin = Column(String(30))
+    datedeb = Column(DateTime)  # date début inhabilité
+    datefin = Column(DateTime)  # date fin inhabilité
     comm = Column(Text)
-    created_at = Column(String(30))
-    updated_at = Column(String(30))
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
 
 
 # ============================================================
@@ -141,7 +141,7 @@ class AppUser(Base):
     password_hash = Column(String(100), nullable=False)
     name = Column(String(200))
     role = Column(String(20), nullable=False)
-    created_at = Column(String(30), nullable=False)
+    created_at = Column(DateTime, nullable=False)
 
 
 class AuditLog(Base):
@@ -151,7 +151,7 @@ class AuditLog(Base):
     action = Column(String(40), nullable=False)
     user_email = Column(String(200), nullable=False)
     summary = Column(String(500))
-    timestamp = Column(String(30), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
 
 
 class Connexion(Base):
@@ -166,8 +166,8 @@ class Connexion(Base):
     description = Column(Text)
     password_enc = Column(String(500))
     is_primary = Column(Boolean, default=False, nullable=False)
-    created_at = Column(String(30), nullable=False)
-    updated_at = Column(String(30), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
 
 
 class Mandat(Base):
@@ -176,14 +176,14 @@ class Mandat(Base):
     avocat_id = Column(String(36), nullable=False, index=True)
     requerant = Column(String(200), default="")
     article = Column(String(20), default="486.3", nullable=False)
-    date_ordonnance = Column(String(30), index=True)
-    date_emission = Column(String(30))
+    date_ordonnance = Column(DateTime, index=True)  # datetime2(0)
+    date_emission = Column(DateTime)  # datetime2(0)
     numero = Column(String(50), default="")
     groupe = Column(String(50), default="Pratique Privée", nullable=False)
     commentaire = Column(Text)
     usermodif = Column(String(50))
-    created_at = Column(String(30), nullable=False)
-    updated_at = Column(String(30), nullable=False)
+    created_at = Column(DateTime, nullable=False)  # datetime2(0)
+    updated_at = Column(DateTime, nullable=False)  # datetime2(0)
 
 
 # ============================================================

@@ -114,6 +114,9 @@ def avocat_to_dict(a: Avocat, db: Optional[Session] = None) -> dict:
         "villerref": a.villeref or "",
         "neq": a.neq or "",
         "codeusager": a.codeusager or "",
+        # Indicateurs : motpasse1/motpasse2 sont définis ? (valeurs jamais exposées ici)
+        "motpasse1_set": bool((a.motpasse1 or "").strip()),
+        "motpasse2_set": bool((a.motpasse2 or "").strip()),
         # Adresse principale : jointure si db fourni, sinon dict vide
         "adresse": _fetch_adresse_courante(db, a),
         "created_at": a.created_at or "",

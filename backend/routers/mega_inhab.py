@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from audit import write_audit, mega_to_dict, inhab_to_dict
 from database import get_db
 from models import Avocat, InfoMega, InfoDistrict, Inhpra, bool_to_yn
-from schemas import InfoMegaIn, InhabIn, WebPasswordIn
-from security import get_current_user, hash_password, now_utc, require_role
+from schemas import InfoMegaIn, InhabIn
+from security import get_current_user, now_utc, require_role
 
 router = APIRouter(prefix="/avocats", tags=["mega-inhab-web"])
 
@@ -145,32 +145,93 @@ def delete_inhab(avocat_id: str, inhab_id: str,
     return {"ok": True}
 
 
-# ---------- Web password ----------
-@router.put("/{avocat_id}/web-password")
-def set_web_password(avocat_id: str, payload: WebPasswordIn,
-                     user: dict = Depends(require_role("admin", "editeur")),
-                     db: Session = Depends(get_db)):
+# ---------- Mots de passe Web (legacy VB : motpasse1 + motpasse2) ----------
+# Reproduit fidèlement `subCreerPwd()` de frmAvocat.vb :
+#   Do
+#       motpasse = Trim(Int((160000 * Rnd()) + 10000))
+#   Loop Until VerifMotPasseWeb(motpasse, 1|2) = True And Len(motpasse) > 4
+#
+# Plage : 10000..169999 (5 ou 6 chiffres), stocké EN CLAIR dans CHAR(8).
+# Le code legacy stocke les valeurs en clair pour interop avec les services
+# externes (portails Barreau/factweb).
+import random
+
+
+def _generate_unique_motpasse(db: Session, column) -> str:
+    """Génère un motpasse 5-6 chiffres unique sur la colonne donnée.
+
+    Boucle anti-collision à l'identique du legacy : tire un entier dans
+    [10000, 169999], vérifie l'unicité via SELECT, recommence sinon.
+    """
+    for _ in range(200):  # garde-fou : 200 tentatives max
+        candidate = str(random.randint(10000, 169999))
+        if len(candidate) <= 4:
+            continue
+        exists = db.query(Avocat).filter(column == candidate).first()
+        if not exists:
+            return candidate
+    raise HTTPException(status_code=500, detail="Impossible de générer un mot de passe unique")
+
+
+@router.post("/{avocat_id}/reset-passwords")
+def reset_passwords(avocat_id: str,
+                    user: dict = Depends(require_role("admin", "editeur")),
+                    db: Session = Depends(get_db)):
+    """Régénère motpasse1 + motpasse2 (legacy `subCreerPwd` + `funcSavePwd`).
+
+    Retourne les 2 nouvelles valeurs en clair (one-shot — le client doit les
+    copier). Les valeurs sont aussi accessibles via GET /passwords (TI only).
+    """
     avo = db.query(Avocat).filter_by(id=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    avo.web_password_hash = hash_password(payload.password)
-    avo.updated_at = now_utc()
+    mp1 = _generate_unique_motpasse(db, Avocat.motpasse1)
+    mp2 = _generate_unique_motpasse(db, Avocat.motpasse2)
+    now = now_utc()
+    avo.motpasse1 = mp1
+    avo.motpasse2 = mp2
+    avo.datemodif = now
+    avo.updated_at = now
+    avo.usermodif = user.get("email", "")
     db.commit()
-    write_audit(db, avocat_id, "web_password_set", user.get("email", ""), "Mot de passe web défini")
-    return {"ok": True}
+    write_audit(db, avocat_id, "pwd_reset", user.get("email", ""),
+                "Réinitialisation des mots de passe Web (motpasse1 + motpasse2)")
+    return {"motpasse1": mp1, "motpasse2": mp2}
 
 
-@router.delete("/{avocat_id}/web-password")
-def clear_web_password(avocat_id: str, user: dict = Depends(require_role("admin", "editeur")),
-                       db: Session = Depends(get_db)):
+@router.post("/{avocat_id}/clear-passwords")
+def clear_passwords(avocat_id: str,
+                    user: dict = Depends(require_role("admin", "editeur")),
+                    db: Session = Depends(get_db)):
+    """Efface les 2 mots de passe (équivalent du `objAvocat.motpasse1 = ""` VB)."""
     avo = db.query(Avocat).filter_by(id=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    avo.web_password_hash = None
+    avo.motpasse1 = ""
+    avo.motpasse2 = ""
     avo.updated_at = now_utc()
+    avo.datemodif = avo.updated_at
+    avo.usermodif = user.get("email", "")
     db.commit()
-    write_audit(db, avocat_id, "web_password_clear", user.get("email", ""), "Mot de passe web réinitialisé")
+    write_audit(db, avocat_id, "pwd_clear", user.get("email", ""),
+                "Effacement des mots de passe Web")
     return {"ok": True}
+
+
+@router.get("/{avocat_id}/passwords")
+def get_passwords(avocat_id: str,
+                  user: dict = Depends(require_role("ti")),
+                  db: Session = Depends(get_db)):
+    """Retourne motpasse1 + motpasse2 en clair — réservé au rôle TI (audit-sensible)."""
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    write_audit(db, avocat_id, "pwd_view", user.get("email", ""),
+                "Consultation des mots de passe Web par le TI")
+    return {
+        "motpasse1": (avo.motpasse1 or "").strip(),
+        "motpasse2": (avo.motpasse2 or "").strip(),
+    }
 
 
 # ---------- Audit log (admin only) ----------
@@ -224,6 +285,9 @@ def export_audit_csv(avocat_id: str, user: dict = Depends(require_role("admin"))
         "inhab_delete": "Inhabilité supprimée",
         "web_password_set": "Mot de passe web défini",
         "web_password_clear": "Mot de passe web effacé",
+        "pwd_reset": "Réinitialisation mots de passe Web",
+        "pwd_clear": "Effacement mots de passe Web",
+        "pwd_view": "Consultation mots de passe (TI)",
     }
 
     def gen():

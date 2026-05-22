@@ -22,6 +22,9 @@ const ACTION_LABEL = {
     inhab_delete: { label: "Inhab ✕", className: "bg-red-100 text-red-800 hover:bg-red-100" },
     web_password_set: { label: "MdP web", className: "bg-slate-200 text-slate-800 hover:bg-slate-200" },
     web_password_clear: { label: "MdP web ✕", className: "bg-slate-200 text-slate-800 hover:bg-slate-200" },
+    pwd_reset: { label: "MdP régénérés", className: "bg-blue-100 text-blue-800 hover:bg-blue-100" },
+    pwd_clear: { label: "MdP effacés", className: "bg-slate-200 text-slate-800 hover:bg-slate-200" },
+    pwd_view: { label: "MdP consultés (TI)", className: "bg-amber-100 text-amber-800 hover:bg-amber-100" },
 };
 
 const fmtDate = (iso) => {

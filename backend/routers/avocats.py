@@ -143,9 +143,14 @@ def create_avocat(payload: AvocatCreate,
     new_id = str(uuid.uuid4())
     now = now_utc()
 
+    # Auto-sync legacy : si facturation web activée, codeusager = code avocat (6 char).
+    # Le payload.codeusager est ignoré dans ce cas.
+    factweb_on = bool(payload.factweb)
+
     last_err: Optional[Exception] = None
     for _ in range(5):
         code = _generate_avocat_code(db, type_code)
+        codeusager_value = code if factweb_on else (payload.codeusager or "")
         a = Avocat(
             code=code, id=new_id, type_code=type_code,
             nom=payload.nom, prenom=payload.prenom,
@@ -162,7 +167,7 @@ def create_avocat(payload: AvocatCreate,
             confweb=bool_to_yn(payload.confweb),
             villeref=payload.villerref or "",
             surveil=bool_to_yn(payload.surveil),
-            neq=payload.neq or "", codeusager=payload.codeusager or "",
+            neq=payload.neq or "", codeusager=codeusager_value,
             created_at=now, updated_at=now, datemodif=now,
             usermodif=user.get("email", ""),
         )
@@ -203,6 +208,15 @@ def update_avocat(avocat_id: str, payload: AvocatUpdate,
             _create_or_update_main_address(db, a, v if isinstance(v, dict) else v.model_dump(),
                                             user.get("email", ""))
             changed.append("adresse")
+        elif k == "factweb":
+            # Sync legacy : factweb=O → codeusager = code avocat ; factweb=N → codeusager = ""
+            a.factweb = bool_to_yn(v)
+            a.codeusager = a.code if v else ""
+            changed.append("factweb")
+        elif k == "codeusager":
+            # codeusager n'est jamais modifié manuellement : il suit factweb.
+            # On ignore silencieusement ce champ s'il est envoyé par le client.
+            continue
         elif k in yn_fields:
             setattr(a, k, bool_to_yn(v))
             changed.append(k)

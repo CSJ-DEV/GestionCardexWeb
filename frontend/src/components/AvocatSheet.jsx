@@ -19,8 +19,7 @@ const WEB_KEYS = ["codeusager", "factweb", "confweb"];
 const stable = (obj) => JSON.stringify(obj, Object.keys(obj || {}).sort());
 
 const pickIdent = (form) => {
-    const { _webpwd, ...rest } = form;
-    const out = { ...rest };
+    const out = { ...form };
     WEB_KEYS.forEach((k) => delete out[k]);
     return out;
 };
@@ -117,7 +116,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     // Calcul des flags dirty (recomputés quand form/mega OU baseline changent)
     const identDirty = useMemo(() => stable(pickIdent(form)) !== baseline.ident, [form, baseline.ident]);
     const webDirty = useMemo(
-        () => stable(pickWeb(form)) !== baseline.web || (form._webpwd && form._webpwd.length > 0),
+        () => stable(pickWeb(form)) !== baseline.web,
         [form, baseline.web],
     );
     const megaDirty = useMemo(() => stable(mega) !== baseline.mega, [mega, baseline.mega]);
@@ -317,7 +316,8 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                     <TabsContent value="web" className="mt-6">
                         <WebTab
                             readOnly={readOnly} form={form} upd={upd}
-                            avocatId={avocatId} onSubmit={handleSubmit}
+                            avocatId={avocatId} avocat={avocat}
+                            onSaved={onSaved}
                         />
                     </TabsContent>
 

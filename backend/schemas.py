@@ -143,6 +143,10 @@ class AvocatOut(AvocatBase):
     created_at: str
     updated_at: str
     usermodif: Optional[str] = ""
+    # Indicateurs booléens (jamais les valeurs en clair) — utiles côté UI
+    # pour afficher « défini » sans donner accès au mot de passe.
+    motpasse1_set: bool = False
+    motpasse2_set: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -223,8 +227,3 @@ class ConnexionTestPayload(BaseModel):
     user: Optional[str] = ""
     password: Optional[str] = ""
     database: Optional[str] = ""
-
-
-# ---------- Web password ----------
-class WebPasswordIn(BaseModel):
-    password: str = Field(..., min_length=6)

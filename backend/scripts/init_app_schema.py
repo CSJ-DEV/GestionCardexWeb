@@ -2,9 +2,8 @@
 1. Renomme `sCardAvo.db` → `CardAvo.db`, `sStaticPc.db` → `StaticPc.db`,
    `sArt52.db` → `Art52.db` (idempotent).
 2. Ajoute aux tables legacy les colonnes nécessaires à l'app web :
-   - `Avocats` : id, type_code, web_password_hash, created_at, updated_at
-     (les autres champs comme `actif`, `dateinscbarr`, `surveil` existent déjà
-     en legacy sous d'autres noms : `actpass`, `surveil`, etc.).
+   - `Avocats` : `type_code`, `created_at`, `updated_at` uniquement.
+     Le `code` reste PK legacy. Aucune nouvelle colonne d'identifiant.
    - `Adresses` : id, avocat_id, address (alias moderne d'`adresse`), telephone,
      telephone2, email (alias d'`adremail`), updated_at, created_at.
    - `infomega` : id, avocat_id, francais (bool), anglais (bool), tous_districts,
@@ -72,11 +71,9 @@ def migrate_card_avo() -> None:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
-    # ----- Avocats : ajout colonnes app -----
+    # ----- Avocats : ajout colonnes app (créées + maj timestamps uniquement) -----
     avocats_cols = [
-        ('id', '"id" TEXT'),
         ('type_code', '"type_code" TEXT NOT NULL DEFAULT \'A\''),
-        ('web_password_hash', '"web_password_hash" TEXT'),
         ('created_at', '"created_at" TEXT'),
         ('updated_at', '"updated_at" TEXT'),
     ]

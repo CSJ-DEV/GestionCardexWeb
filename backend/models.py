@@ -3,7 +3,7 @@
 Convention :
 - On préserve les noms de colonnes legacy (ex `dateinscbarr`, `actpass`, `adremail`)
   pour rester compatible avec le futur SQL Server.
-- Les colonnes ajoutées par l'app web (`id`, `web_password_hash`, `created_at`, etc.)
+- Les colonnes ajoutées par l'app web (`created_at`, `updated_at` côté Avocats)
   sont documentées dans `/app/memory/TABLES_AJOUTEES_APP.md`.
 - Les booléens sont stockés en INTEGER (0/1) pour SQLite ; on bascule à `BIT` côté
   SQL Server transparente via SQLAlchemy.
@@ -50,8 +50,7 @@ class Avocat(Base):
     surveil = Column(String(1), default="N")
     neq = Column(String(10), default="")
 
-    # Colonnes app web (audit + extranet uniquement)
-    web_password_hash = Column(String(100))
+    # Colonnes app web (audit + timestamps modernes uniquement)
     created_at = Column(DateTime)  # datetime2(0)
     updated_at = Column(DateTime)  # datetime2(0)
 

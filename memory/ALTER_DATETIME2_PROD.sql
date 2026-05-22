@@ -1,27 +1,14 @@
 /* =====================================================================
-   ALTER_DATETIME2_PROD.sql
+   ALTER_DATETIME2_PROD.sql  (v3 - sans procédure temp)
    ---------------------------------------------------------------------
-   Migration des colonnes date/heure de NVARCHAR/VARCHAR  ->  DATETIME2(0)
+   Migration des colonnes date/heure de NVARCHAR/VARCHAR -> DATETIME2(0)
    pour toutes les tables AJOUTÉES par l'application web.
 
-   À exécuter dans SSMS sur la base CardAvo (legacy).
+   À exécuter dans SSMS sur la base CardAvo.
 
-   Caractéristiques :
-   - 100% idempotent : si la colonne est déjà en DATETIME / DATETIME2, on saute.
-   - Préserve les données existantes via TRY_CONVERT (les chaînes ISO 8601
-     'YYYY-MM-DDTHH:MM:SS' ou 'YYYY-MM-DD HH:MM:SS' sont reconnues).
-   - Toute valeur non convertible devient NULL (visible dans le bloc PRINT).
-   - Conserve le nom original de la colonne via sp_rename.
-
-   Tables concernées (uniquement les colonnes ajoutées par l'app web) :
-     dbo.Avocats     : created_at, updated_at
-     dbo.Adresses    : created_at, updated_at
-     dbo.infomega    : created_at, updated_at
-     dbo.inhpra      : created_at, updated_at, datedeb, datefin
-     dbo.AppUsers    : created_at
-     dbo.AuditLog    : timestamp
-     dbo.Connexions  : created_at, updated_at
-     dbo.Mandats     : created_at, updated_at, date_ordonnance, date_emission
+   v3 : la procédure est créée DANS CardAvo (pas en #temp) pour éviter
+        les conflits de collation entre tempdb (French_CI_AS) et
+        CardAvo (SQL_Latin1_General_CP1_CI_AS). Elle est supprimée à la fin.
 
    IMPORTANT : Faire un BACKUP de CardAvo avant exécution.
    ===================================================================== */
@@ -32,15 +19,15 @@ SET XACT_ABORT ON;
 USE CardAvo;
 GO
 
-/* ---------------------------------------------------------------------
-   Procédure utilitaire : convertit une colonne NVARCHAR/VARCHAR
-   en DATETIME2(0) seulement si nécessaire.
-   --------------------------------------------------------------------- */
-IF OBJECT_ID('tempdb..#ConvertToDateTime2') IS NOT NULL
-    DROP PROCEDURE #ConvertToDateTime2;
+/* Nettoyage si un essai précédent a laissé la procédure */
+IF OBJECT_ID('dbo.sp_ConvertToDateTime2', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.sp_ConvertToDateTime2;
 GO
 
-CREATE PROCEDURE #ConvertToDateTime2
+/* ---------------------------------------------------------------------
+   Procédure utilitaire (permanente dans CardAvo, dropée à la fin)
+   --------------------------------------------------------------------- */
+CREATE PROCEDURE dbo.sp_ConvertToDateTime2
     @schema     SYSNAME,
     @table      SYSNAME,
     @column     SYSNAME,
@@ -52,23 +39,27 @@ BEGIN
     DECLARE @current_type SYSNAME;
     DECLARE @sql NVARCHAR(MAX);
     DECLARE @full_name NVARCHAR(400) = QUOTENAME(@schema) + '.' + QUOTENAME(@table);
-    DECLARE @null_clause NVARCHAR(20) = CASE WHEN @nullable = 1 THEN 'NULL' ELSE 'NOT NULL' END;
+    DECLARE @object_id INT = OBJECT_ID(@full_name);
 
-    /* 1. Récupère le type actuel
-       NB : on force COLLATE DATABASE_DEFAULT pour éviter les conflits
-       entre la collation de tempdb (où vit la procédure #temp) et celle
-       de la base cible (ex : French_CI_AS vs SQL_Latin1_General_CP1_CI_AS). */
-    SELECT @current_type = DATA_TYPE
-    FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA COLLATE DATABASE_DEFAULT = @schema COLLATE DATABASE_DEFAULT
-      AND TABLE_NAME   COLLATE DATABASE_DEFAULT = @table  COLLATE DATABASE_DEFAULT
-      AND COLUMN_NAME  COLLATE DATABASE_DEFAULT = @column COLLATE DATABASE_DEFAULT;
+    IF @object_id IS NULL
+    BEGIN
+        PRINT '  [SKIP] ' + @full_name + ' : table inexistante.';
+        RETURN;
+    END
 
-    IF @current_type IS NULL
+    /* 1. Récupère le type via sys.columns + COLUMNPROPERTY (pas de comparaison string -> pas de conflit collation) */
+    DECLARE @col_id INT = COLUMNPROPERTY(@object_id, @column, 'ColumnId');
+
+    IF @col_id IS NULL
     BEGIN
         PRINT '  [SKIP] ' + @full_name + '.' + @column + ' : colonne inexistante.';
         RETURN;
     END
+
+    SELECT @current_type = TYPE_NAME(c.user_type_id)
+    FROM sys.columns c
+    WHERE c.object_id = @object_id
+      AND c.column_id = @col_id;
 
     /* 2. Déjà au bon type ? */
     IF @current_type IN ('datetime', 'datetime2', 'smalldatetime', 'date')
@@ -109,14 +100,16 @@ BEGIN
                N' = TRY_CONVERT(datetime2(0), ' + QUOTENAME(@column) + N');';
     EXEC sp_executesql @sql;
 
-    /* c) Drop l'ancienne colonne (les contraintes DEFAULT seront recréées plus bas) */
-    /*    On supprime les éventuels DEFAULT constraints liés. */
+    /* c) Supprime l'éventuel DEFAULT lié, puis drop l'ancienne colonne
+       Pas de comparaison string : on filtre via column_id récupéré plus haut. */
     DECLARE @def_name SYSNAME;
     SELECT @def_name = dc.name
     FROM sys.default_constraints dc
-    JOIN sys.columns c ON c.default_object_id = dc.object_id
-    WHERE dc.parent_object_id = OBJECT_ID(@full_name)
-      AND c.name COLLATE DATABASE_DEFAULT = @column COLLATE DATABASE_DEFAULT;
+    JOIN sys.columns c
+      ON c.default_object_id = dc.object_id
+    WHERE dc.parent_object_id = @object_id
+      AND c.object_id = @object_id
+      AND c.column_id = @col_id;
 
     IF @def_name IS NOT NULL
     BEGIN
@@ -156,42 +149,47 @@ PRINT '=== Migration NVARCHAR -> DATETIME2(0) ===';
 PRINT '';
 
 PRINT '-- dbo.Avocats --';
-EXEC #ConvertToDateTime2 'dbo', 'Avocats', 'created_at', 1;
-EXEC #ConvertToDateTime2 'dbo', 'Avocats', 'updated_at', 1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Avocats', 'created_at', 1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Avocats', 'updated_at', 1;
 
 PRINT '-- dbo.Adresses --';
-EXEC #ConvertToDateTime2 'dbo', 'Adresses', 'created_at', 1;
-EXEC #ConvertToDateTime2 'dbo', 'Adresses', 'updated_at', 1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Adresses', 'created_at', 1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Adresses', 'updated_at', 1;
 
 PRINT '-- dbo.infomega --';
-EXEC #ConvertToDateTime2 'dbo', 'infomega', 'created_at', 1;
-EXEC #ConvertToDateTime2 'dbo', 'infomega', 'updated_at', 1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'infomega', 'created_at', 1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'infomega', 'updated_at', 1;
 
 PRINT '-- dbo.inhpra --';
-EXEC #ConvertToDateTime2 'dbo', 'inhpra', 'created_at', 1;
-EXEC #ConvertToDateTime2 'dbo', 'inhpra', 'updated_at', 1;
-EXEC #ConvertToDateTime2 'dbo', 'inhpra', 'datedeb',    1;
-EXEC #ConvertToDateTime2 'dbo', 'inhpra', 'datefin',    1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'inhpra', 'created_at', 1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'inhpra', 'updated_at', 1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'inhpra', 'datedeb',    1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'inhpra', 'datefin',    1;
 
 PRINT '-- dbo.AppUsers --';
-EXEC #ConvertToDateTime2 'dbo', 'AppUsers', 'created_at', 0;   -- NOT NULL
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'AppUsers', 'created_at', 0;
 
 PRINT '-- dbo.AuditLog --';
-EXEC #ConvertToDateTime2 'dbo', 'AuditLog', 'timestamp', 0;    -- NOT NULL
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'AuditLog', 'timestamp', 0;
 
 PRINT '-- dbo.Connexions --';
-EXEC #ConvertToDateTime2 'dbo', 'Connexions', 'created_at', 0; -- NOT NULL
-EXEC #ConvertToDateTime2 'dbo', 'Connexions', 'updated_at', 0; -- NOT NULL
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Connexions', 'created_at', 0;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Connexions', 'updated_at', 0;
 
 PRINT '-- dbo.Mandats --';
-EXEC #ConvertToDateTime2 'dbo', 'Mandats', 'created_at',      0;  -- NOT NULL
-EXEC #ConvertToDateTime2 'dbo', 'Mandats', 'updated_at',      0;  -- NOT NULL
-EXEC #ConvertToDateTime2 'dbo', 'Mandats', 'date_ordonnance', 1;
-EXEC #ConvertToDateTime2 'dbo', 'Mandats', 'date_emission',   1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Mandats', 'created_at',      0;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Mandats', 'updated_at',      0;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Mandats', 'date_ordonnance', 1;
+EXEC dbo.sp_ConvertToDateTime2 'dbo', 'Mandats', 'date_emission',   1;
 
 PRINT '';
 PRINT '=== Migration terminée ===';
 PRINT '';
+GO
+
+/* Nettoyage : on enlève la procédure utilitaire */
+DROP PROCEDURE dbo.sp_ConvertToDateTime2;
+GO
 
 
 /* =====================================================================

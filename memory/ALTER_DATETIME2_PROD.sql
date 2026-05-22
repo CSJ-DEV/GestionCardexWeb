@@ -54,12 +54,15 @@ BEGIN
     DECLARE @full_name NVARCHAR(400) = QUOTENAME(@schema) + '.' + QUOTENAME(@table);
     DECLARE @null_clause NVARCHAR(20) = CASE WHEN @nullable = 1 THEN 'NULL' ELSE 'NOT NULL' END;
 
-    /* 1. Récupère le type actuel */
+    /* 1. Récupère le type actuel
+       NB : on force COLLATE DATABASE_DEFAULT pour éviter les conflits
+       entre la collation de tempdb (où vit la procédure #temp) et celle
+       de la base cible (ex : French_CI_AS vs SQL_Latin1_General_CP1_CI_AS). */
     SELECT @current_type = DATA_TYPE
     FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = @schema
-      AND TABLE_NAME   = @table
-      AND COLUMN_NAME  = @column;
+    WHERE TABLE_SCHEMA COLLATE DATABASE_DEFAULT = @schema COLLATE DATABASE_DEFAULT
+      AND TABLE_NAME   COLLATE DATABASE_DEFAULT = @table  COLLATE DATABASE_DEFAULT
+      AND COLUMN_NAME  COLLATE DATABASE_DEFAULT = @column COLLATE DATABASE_DEFAULT;
 
     IF @current_type IS NULL
     BEGIN
@@ -113,7 +116,7 @@ BEGIN
     FROM sys.default_constraints dc
     JOIN sys.columns c ON c.default_object_id = dc.object_id
     WHERE dc.parent_object_id = OBJECT_ID(@full_name)
-      AND c.name = @column;
+      AND c.name COLLATE DATABASE_DEFAULT = @column COLLATE DATABASE_DEFAULT;
 
     IF @def_name IS NOT NULL
     BEGIN

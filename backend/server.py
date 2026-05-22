@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from database import engine, get_db, Base, DATABASE_URL
 from models import AppUser, Connexion
-from security import hash_password, now_utc, verify_password
+from security import hash_password, now_local, verify_password
 
 # Routers
 from routers.auth import router as auth_router
@@ -84,7 +84,7 @@ def on_startup():
             if not existing:
                 db.add(AppUser(id=str(uuid.uuid4()), email=admin_email,
                                password_hash=hash_password(admin_password),
-                               name="Administrateur", role="admin", created_at=now_utc()))
+                               name="Administrateur", role="admin", created_at=now_local()))
                 db.commit()
                 logger.info(f"Admin créé: {admin_email}")
             elif not verify_password(admin_password, existing.password_hash):
@@ -98,7 +98,7 @@ def on_startup():
             if not db.query(AppUser).filter_by(email=ti_email).first():
                 db.add(AppUser(id=str(uuid.uuid4()), email=ti_email,
                                password_hash=hash_password(ti_password),
-                               name="Technicien TI", role="ti", created_at=now_utc()))
+                               name="Technicien TI", role="ti", created_at=now_local()))
                 db.commit()
                 logger.info(f"Compte TI créé: {ti_email}")
 
@@ -110,7 +110,7 @@ def on_startup():
                 if not db.query(AppUser).filter_by(email=email).first():
                     db.add(AppUser(id=str(uuid.uuid4()), email=email,
                                    password_hash=hash_password(pwd),
-                                   name=name, role=role, created_at=now_utc()))
+                                   name=name, role=role, created_at=now_local()))
                     db.commit()
                     logger.info(f"Compte de test créé: {email} ({role})")
         else:
@@ -137,7 +137,7 @@ def on_startup():
             ]
             for s in sqlite_seeds:
                 if not db.query(Connexion).filter_by(name=s["name"]).first():
-                    now = now_utc()
+                    now = now_local()
                     db.add(Connexion(id=str(uuid.uuid4()), name=s["name"], type="sqlite",
                                      server="(fichier local)", port=None, user="",
                                      database=s["file"], description=s["description"],

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 import bcrypt
 import jwt
@@ -14,6 +15,10 @@ from models import AppUser
 
 JWT_ALGORITHM = "HS256"
 ADMIN_LIKE = {"admin", "ti"}
+
+# Timezone métier (Québec) — pour reproduire le comportement `Now()` du legacy VB.
+# Override possible via la variable d'env APP_TIMEZONE (utile pour tests).
+APP_TZ = ZoneInfo(os.environ.get("APP_TIMEZONE", "America/Toronto"))
 
 
 def hash_password(password: str) -> str:
@@ -34,8 +39,17 @@ def now_iso() -> str:
 
 
 def now_utc() -> datetime:
-    """Datetime aware UTC, sans microsecondes (compatible smalldatetime/datetime2)."""
+    """Datetime aware UTC, sans microsecondes — réservé au JWT et aux usages où UTC est nécessaire."""
     return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def now_local() -> datetime:
+    """Datetime naïf en heure locale Québec (= legacy VB `Now()`).
+
+    Utilisé pour les colonnes `datemodif`, `created_at`, `updated_at`,
+    `timestamp` (audit). Naïf car SQL Server stocke en local sans TZ.
+    """
+    return datetime.now(APP_TZ).replace(tzinfo=None, microsecond=0)
 
 
 def create_access_token(user_id, email: str) -> str:

@@ -21,7 +21,7 @@ from connexions import (
 from database import get_db
 from models import Connexion
 from schemas import ConnexionTestPayload
-from security import now_utc, require_role
+from security import now_local, require_role
 
 ROOT_DIR = Path(__file__).parent.parent
 router = APIRouter(prefix="/connexions", tags=["connexions"])
@@ -54,7 +54,7 @@ def get_connexion(conn_id: str, user: dict = Depends(require_role("ti")),
 @router.post("", status_code=201)
 def create_connexion(payload: ConnexionCreate, user: dict = Depends(require_role("ti")),
                      db: Session = Depends(get_db)):
-    now = now_utc()
+    now = now_local()
     pwd = (payload.password or "").strip()
     c = Connexion(
         id=str(uuid.uuid4()), name=payload.name, type=payload.type, server=payload.server,
@@ -86,7 +86,7 @@ def update_connexion(conn_id: str, payload: ConnexionUpdate,
         c.password_enc = encrypt_password(pwd)
     for k, v in update.items():
         setattr(c, k, v)
-    c.updated_at = now_utc()
+    c.updated_at = now_local()
     db.commit()
     db.refresh(c)
     return _conn_to_out(c)

@@ -13,7 +13,7 @@ from audit import mandat_to_dict
 from database import get_db
 from models import Avocat, Mandat
 from schemas import MandatBase, MandatUpdate
-from security import get_current_user, now_utc, require_role
+from security import get_current_user, now_local, require_role
 
 router = APIRouter(prefix="/mandats", tags=["mandats"])
 
@@ -52,7 +52,7 @@ def create_mandat(payload: MandatBase, user: dict = Depends(require_role("admin"
                   db: Session = Depends(get_db)):
     if not db.query(Avocat).filter_by(id=payload.avocat_id).first():
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = now_utc()
+    now = now_local()
     m = Mandat(id=str(uuid.uuid4()), avocat_id=payload.avocat_id,
                requerant=payload.requerant, article=payload.article,
                date_ordonnance=_parse_date(payload.date_ordonnance),
@@ -80,7 +80,7 @@ def update_mandat(mandat_id: str, payload: MandatUpdate,
             setattr(m, k, _parse_date(v))
         else:
             setattr(m, k, v)
-    m.updated_at = now_utc()
+    m.updated_at = now_local()
     db.commit()
     return {"ok": True}
 

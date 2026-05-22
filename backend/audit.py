@@ -12,7 +12,7 @@ from models import (
     Avocat, Adresse, InfoMega, InfoDistrict, Inhpra, AuditLog, Mandat,
     yn_to_bool,
 )
-from security import now_utc
+from security import now_local
 
 logger = logging.getLogger("gestioncardex")
 
@@ -39,7 +39,7 @@ def write_audit(db: Session, avocat_id: str, action: str, user_email: str, summa
             action=action,
             user_email=user_email or "système",
             summary=summary,
-            timestamp=now_utc(),
+            timestamp=now_local(),
         )
         db.add(entry)
         db.commit()

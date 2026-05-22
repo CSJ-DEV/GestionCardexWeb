@@ -11,7 +11,7 @@ from audit import write_audit, mega_to_dict, inhab_to_dict
 from database import get_db
 from models import Avocat, InfoMega, InfoDistrict, Inhpra, bool_to_yn
 from schemas import InfoMegaIn, InhabIn
-from security import get_current_user, now_utc, require_role
+from security import get_current_user, now_local, require_role
 
 router = APIRouter(prefix="/avocats", tags=["mega-inhab-web"])
 
@@ -37,7 +37,7 @@ def upsert_mega(avocat_id: str, payload: InfoMegaIn,
     avo = db.query(Avocat).filter_by(id=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = now_utc()
+    now = now_local()
     m = db.query(InfoMega).filter_by(avocat_id=avocat_id).first()
     if not m:
         m = InfoMega(id=str(uuid.uuid4()), avocat_id=avocat_id, code=avo.code, created_at=now)
@@ -102,7 +102,7 @@ def create_inhab(avocat_id: str, payload: InhabIn,
     avo = db.query(Avocat).filter_by(id=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = now_utc()
+    now = now_local()
     i = Inhpra(uuid=str(uuid.uuid4()), avocat_id=avocat_id, code=avo.code,
                datedeb=payload.datedeb, datefin=payload.datefin or "",
                comm=payload.comm or "", created_at=now, updated_at=now)
@@ -124,7 +124,7 @@ def update_inhab(avocat_id: str, inhab_id: str, payload: InhabIn,
     i.datedeb = payload.datedeb
     i.datefin = payload.datefin or ""
     i.comm = payload.comm or ""
-    i.updated_at = now_utc()
+    i.updated_at = now_local()
     db.commit()
     write_audit(db, avocat_id, "inhab_update", user.get("email", ""),
                 f"Période d'inhabilité modifiée : {payload.datedeb} → {payload.datefin or 'en cours'}")
@@ -187,7 +187,7 @@ def reset_passwords(avocat_id: str,
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     mp1 = _generate_unique_motpasse(db, Avocat.motpasse1)
     mp2 = _generate_unique_motpasse(db, Avocat.motpasse2)
-    now = now_utc()
+    now = now_local()
     avo.motpasse1 = mp1
     avo.motpasse2 = mp2
     avo.datemodif = now
@@ -209,7 +209,7 @@ def clear_passwords(avocat_id: str,
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     avo.motpasse1 = ""
     avo.motpasse2 = ""
-    avo.updated_at = now_utc()
+    avo.updated_at = now_local()
     avo.datemodif = avo.updated_at
     avo.usermodif = user.get("email", "")
     db.commit()

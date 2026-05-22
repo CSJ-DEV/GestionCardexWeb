@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import AppUser
 from schemas import UserCreate, UserUpdate
-from security import hash_password, now_utc, require_role
+from security import hash_password, now_local, require_role
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -34,7 +34,7 @@ def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))
     if db.query(AppUser).filter_by(email=email).first():
         raise HTTPException(status_code=409, detail="Courriel déjà utilisé")
     u = AppUser(id=str(uuid.uuid4()), email=email, name=payload.name, role=payload.role,
-                password_hash=hash_password(payload.password), created_at=now_utc())
+                password_hash=hash_password(payload.password), created_at=now_local())
     db.add(u)
     db.commit()
     return {"id": u.id, "email": email, "name": payload.name, "role": payload.role}

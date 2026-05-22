@@ -11,7 +11,7 @@ from audit import write_audit, adresse_to_dict
 from database import get_db
 from models import Avocat, Adresse, bool_to_yn
 from schemas import AdresseModel
-from security import get_current_user, now_utc, require_role
+from security import get_current_user, now_local, require_role
 
 router = APIRouter(prefix="/avocats", tags=["adresses"])
 
@@ -43,7 +43,7 @@ def create_adresse(avocat_id: str, payload: AdresseModel, courant: bool = False,
                    user: dict = Depends(require_role("admin", "editeur")),
                    db: Session = Depends(get_db)):
     avo = _get_avocat(db, avocat_id)
-    now = now_utc()
+    now = now_local()
     new_rowid = str(uuid.uuid4())
     if courant:
         db.query(Adresse).filter(Adresse.code == avo.code).update({"courant": "N"})
@@ -89,7 +89,7 @@ def update_adresse(avocat_id: str, adresse_id: str, payload: AdresseModel, coura
             adr = None
     if not adr:
         raise HTTPException(status_code=404, detail="Adresse introuvable")
-    now = now_utc()
+    now = now_local()
     for f in ("address", "adresse2", "adresse3", "ville", "province", "codepostal",
               "telephone", "telephone2", "fax"):
         setattr(adr, f, getattr(payload, f) or "")

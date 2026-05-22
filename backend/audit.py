@@ -74,7 +74,7 @@ def _fetch_adresse_courante(db: Optional[Session], a: Avocat) -> dict:
         "telephone": adr.telephone or "",
         "telephone2": adr.telephone2 or "",
         "fax": adr.fax or "",
-        "email": adr.email or adr.adremail or "",
+        "email": adr.adremail or "",
     }
 
 

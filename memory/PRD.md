@@ -324,3 +324,25 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - **P3** Filtre par type d'action sur l'onglet Historique
 - **P3** Tests E2E par rôles (admin/éditeur/lecteur) systématiques
 - **P3** Bilingue FR/EN (extension future)
+
+
+## Phase 16 — Migration DATETIME2 + Nettoyage Surveil/Taxes (2026-02 fork, suite)
+**Implémenté** :
+- **Script `/app/memory/ALTER_DATETIME2_PROD.sql`** (v3) : convertit toutes les colonnes timestamp app web de `NVARCHAR` → `DATETIME2(0)` dans CardAvo. Procédure permanente dans CardAvo (pas en #temp pour éviter conflits de collation `tempdb` vs `CardAvo`). Utilise `COLUMNPROPERTY` + `sys.columns.column_id` pour ne plus dépendre de comparaisons string sensibles à la collation. Idempotent + auto-drop de la procédure à la fin.
+- **Conversion exécutée en prod** : `Avocats.created_at`, `Avocats.updated_at`, `Mandats.created_at`, `Mandats.updated_at`, `Mandats.date_ordonnance`, `Mandats.date_emission` sont maintenant en `datetime2`. Autres tables (`Adresses`, `infomega`, `inhpra`, `AppUsers`, `AuditLog`, `Connexions`) étaient déjà au bon type.
+- **Nettoyage `attente`** : champ web-only complètement supprimé (pas de colonne legacy équivalente).
+  - `schemas.py` : retiré de `AvocatBase` et `AvocatUpdate`
+  - `routers/avocats.py` : nettoyage du commentaire dans la boucle update
+  - `audit.py` : commentaires mis à jour
+  - `models.py` + `scripts/init_app_schema.py` : références supprimées
+  - `IdentificationTab.jsx` : switch "En attente" retiré de la liste STATUTS
+  - `constants.js` : `attente: false` retiré de `EMPTY_AVOCAT`
+- **Taxes en lecture seule** : champ `taxes` ramené à un `<Input disabled />` avec label « Taxes (lecture seule — autre serveur) » et placeholder « — provient de la BDD taxes — ». La valeur reste vide en attendant l'intégration cross-server (`cNoTax1` TPS / `cNoTax2` TVQ).
+
+**Vérification API** : `GET /api/avocats?page=1&page_size=2` confirme `has_attente=False`, `has_surveil=True`, `has_taxes=True`.
+
+**Backlog après Phase 16** :
+- **P1** Intégration des codes de taxes en lecture seule depuis l'autre serveur SQL Server (`cNoTax1` / `cNoTax2`). Méthode envisagée : Linked Server SQL ou 2ᵉ session SQLAlchemy. Requiert info de l'utilisateur : serveur+DB+table+clé de jointure+credentials.
+- **P2** Exploitation des BDD secondaires `StaticPc` (référentiels) et `Art52` (paiements)
+- **P3** Custom Domain + restriction IP sur Azure App Service
+- **P3** Backfill optionnel des `created_at`/`updated_at` NULL existants dans `Avocats` (script SQL ad-hoc)

@@ -9,10 +9,10 @@ import { Field } from "./constants";
 import { DateInput } from "./DateInput";
 
 const STATUTS = [
-    { k: "actif", l: "Actif" }, { k: "attente", l: "En attente" },
-    { k: "payable", l: "Payable" }, { k: "depodirect", l: "Dépôt direct" },
-    { k: "factweb", l: "Facturation web" }, { k: "confweb", l: "Confirmation web" },
-    { k: "mega", l: "Méga" }, { k: "surveil", l: "Sous surveillance" },
+    { k: "actif", l: "Actif" }, { k: "payable", l: "Payable" },
+    { k: "depodirect", l: "Dépôt direct" }, { k: "factweb", l: "Facturation web" },
+    { k: "confweb", l: "Confirmation web" }, { k: "mega", l: "Méga" },
+    { k: "surveil", l: "En attente" },
 ];
 
 export const IdentificationTab = ({
@@ -64,8 +64,8 @@ export const IdentificationTab = ({
             <Field label="Date inscription barreau">
                 <DateInput value={form.dateinscbarr || ""} onChange={(v) => upd("dateinscbarr", v)} disabled={readOnly} className="rounded-md font-mono" />
             </Field>
-            <Field label="Taxes">
-                <Input value={form.taxes} onChange={(e) => upd("taxes", e.target.value)} disabled={readOnly} className="rounded-md" />
+            <Field label="Taxes (lecture seule — autre serveur)">
+                <Input value={form.taxes || ""} disabled placeholder="— provient de la BDD taxes —" className="rounded-md text-slate-500" data-testid="avocat-input-taxes" />
             </Field>
             <Field label="Ville référence">
                 <Input value={form.villerref} onChange={(e) => upd("villerref", e.target.value)} disabled={readOnly} className="rounded-md" />

@@ -216,9 +216,9 @@ def update_avocat(avocat_id: str, payload: AvocatUpdate,
         elif k == "villerref":
             a.villeref = v or ""
             changed.append("villerref")
-        elif k in {"attente", "taxes"}:
-            # Champs front-end sans équivalent legacy stocké à ce jour — ignorés
-            # (taxes viendra d'une autre BDD, attente n'est plus utilisé).
+        elif k == "taxes":
+            # Taxes (cNoTax1 / cNoTax2) — informations en lecture seule provenant
+            # d'une autre BDD (autre serveur). Pas stockées dans CardAvo.
             continue
         else:
             setattr(a, k, v)

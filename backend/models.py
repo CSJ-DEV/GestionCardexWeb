@@ -3,7 +3,7 @@
 Convention :
 - On préserve les noms de colonnes legacy (ex `dateinscbarr`, `actpass`, `adremail`)
   pour rester compatible avec le futur SQL Server.
-- Les colonnes ajoutées par l'app web (`id`, `actif`, `attente`, `created_at`, etc.)
+- Les colonnes ajoutées par l'app web (`id`, `web_password_hash`, `created_at`, etc.)
   sont documentées dans `/app/memory/TABLES_AJOUTEES_APP.md`.
 - Les booléens sont stockés en INTEGER (0/1) pour SQLite ; on bascule à `BIT` côté
   SQL Server transparente via SQLAlchemy.

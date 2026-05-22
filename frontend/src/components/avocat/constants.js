@@ -14,7 +14,7 @@ export const EMPTY_AVOCAT = {
     code: "", type_code: "A", nom: "", prenom: "",
     sectbar: "", annee_barreau: "", codebar: "", nas: "", neq: "", taxes: "",
     dateinscbarr: "", villerref: "", comm: "",
-    actif: true, attente: false, payable: true, mega: false,
+    actif: true, payable: true, mega: false,
     depodirect: false, factweb: false, confweb: false, surveil: false,
     adresse: { address: "", ville: "", province: "QC", codepostal: "", telephone: "", email: "" },
 };

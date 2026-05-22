@@ -2,8 +2,9 @@
 1. Renomme `sCardAvo.db` → `CardAvo.db`, `sStaticPc.db` → `StaticPc.db`,
    `sArt52.db` → `Art52.db` (idempotent).
 2. Ajoute aux tables legacy les colonnes nécessaires à l'app web :
-   - `Avocats` : id, type_code, actif, attente, annee_barreau, taxes,
-     dateinscbarr (déjà présent), web_password_hash, created_at, updated_at.
+   - `Avocats` : id, type_code, web_password_hash, created_at, updated_at
+     (les autres champs comme `actif`, `dateinscbarr`, `surveil` existent déjà
+     en legacy sous d'autres noms : `actpass`, `surveil`, etc.).
    - `Adresses` : id, avocat_id, address (alias moderne d'`adresse`), telephone,
      telephone2, email (alias d'`adremail`), updated_at, created_at.
    - `infomega` : id, avocat_id, francais (bool), anglais (bool), tous_districts,
@@ -75,13 +76,7 @@ def migrate_card_avo() -> None:
     avocats_cols = [
         ('id', '"id" TEXT'),
         ('type_code', '"type_code" TEXT NOT NULL DEFAULT \'A\''),
-        ('actif', '"actif" INTEGER NOT NULL DEFAULT 1'),
-        ('attente', '"attente" INTEGER NOT NULL DEFAULT 0'),
-        ('annee_barreau', '"annee_barreau" TEXT'),
-        ('taxes', '"taxes" TEXT'),
         ('web_password_hash', '"web_password_hash" TEXT'),
-        ('villerref', '"villerref" TEXT'),  # alias plus complet (legacy a villeref)
-        ('adresse_courante', '"adresse_courante" TEXT'),  # JSON snapshot de l'adresse courante
         ('created_at', '"created_at" TEXT'),
         ('updated_at', '"updated_at" TEXT'),
     ]

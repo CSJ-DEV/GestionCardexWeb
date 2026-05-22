@@ -91,7 +91,6 @@ class AvocatBase(BaseModel):
     sectbar: Optional[str] = ""
     mega: bool = False
     actif: bool = True
-    attente: bool = False
     annee_barreau: Optional[str] = ""
     dateinscbarr: Optional[str] = ""
     payable: bool = True
@@ -121,7 +120,6 @@ class AvocatUpdate(BaseModel):
     sectbar: Optional[str] = None
     mega: Optional[bool] = None
     actif: Optional[bool] = None
-    attente: Optional[bool] = None
     annee_barreau: Optional[str] = None
     taxes: Optional[str] = None
     dateinscbarr: Optional[str] = None

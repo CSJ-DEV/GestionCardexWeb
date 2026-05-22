@@ -94,7 +94,7 @@ def avocat_to_dict(a: Avocat, db: Optional[Session] = None) -> dict:
         "mega": yn_to_bool(a.mega),
         # actpass 'A'/'P' → bool actif
         "actif": actpass_to_bool(a.actpass),
-        # surveil 'O'/'N' → bool (champ surveillance, distinct de attente)
+        # surveil 'O'/'N' → bool (champ de surveillance legacy `Surveil`)
         "surveil": yn_to_bool(a.surveil),
         # Année d'inscription au barreau (champ legacy `dateinscbarr`,
         # contient juste l'année ex "2010"). On expose aussi `annee_barreau`
@@ -105,7 +105,7 @@ def avocat_to_dict(a: Avocat, db: Optional[Session] = None) -> dict:
         "codebar": a.codebar or "",
         "comm": a.comm or "",
         "nas": a.nas or "",
-        # taxes : à revoir, viendra d'une autre BDD (cNoTax1/cNoTax2)
+        # taxes : lecture seule, viendra d'une autre BDD (cNoTax1 TPS / cNoTax2 TVQ)
         "taxes": "",
         "depodirect": yn_to_bool(a.depodirect),
         "factweb": yn_to_bool(a.factweb),

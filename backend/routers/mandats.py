@@ -50,7 +50,7 @@ def list_mandats(user: dict = Depends(get_current_user),
 @router.post("", status_code=201)
 def create_mandat(payload: MandatBase, user: dict = Depends(require_role("admin", "editeur")),
                   db: Session = Depends(get_db)):
-    if not db.query(Avocat).filter_by(id=payload.avocat_id).first():
+    if not db.query(Avocat).filter_by(code=payload.avocat_id).first():
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     now = now_local()
     m = Mandat(id=str(uuid.uuid4()), avocat_id=payload.avocat_id,

@@ -17,10 +17,8 @@ router = APIRouter(prefix="/avocats", tags=["adresses"])
 
 
 def _get_avocat(db: Session, avocat_id: str) -> Avocat:
-    """Retrouve un avocat par UUID web ou par code legacy."""
-    a = db.query(Avocat).filter_by(id=avocat_id).first()
-    if a is None:
-        a = db.query(Avocat).filter_by(code=avocat_id).first()
+    """Retrouve un avocat par `code` legacy (= identifiant unique de l'API)."""
+    a = db.query(Avocat).filter_by(code=avocat_id).first()
     if a is None:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     return a
@@ -66,7 +64,7 @@ def create_adresse(avocat_id: str, payload: AdresseModel, courant: bool = False,
         avo.updated_at = now
     db.commit()
     db.refresh(adr)
-    write_audit(db, avo.id or avo.code, "adresse_create", user.get("email", ""),
+    write_audit(db, avo.code, "adresse_create", user.get("email", ""),
                 f"Adresse ajoutée : {payload.address or '?'}, {payload.ville or ''}".strip(", "))
     return adresse_to_dict(adr)
 
@@ -106,7 +104,7 @@ def update_adresse(avocat_id: str, adresse_id: str, payload: AdresseModel, coura
             avo.adrcour = adr.noseq
             avo.updated_at = now
     db.commit()
-    write_audit(db, avo.id or avo.code, "adresse_update", user.get("email", ""),
+    write_audit(db, avo.code, "adresse_update", user.get("email", ""),
                 f"Adresse modifiée : {payload.address or '?'}, {payload.ville or ''}".strip(", "))
     return {"ok": True}
 
@@ -126,6 +124,6 @@ def delete_adresse(avocat_id: str, adresse_id: str,
         avo.adrcour = None
     db.delete(adr)
     db.commit()
-    write_audit(db, avo.id or avo.code, "adresse_delete", user.get("email", ""),
+    write_audit(db, avo.code, "adresse_delete", user.get("email", ""),
                 f"Adresse supprimée : {label}".strip(", "))
     return {"ok": True}

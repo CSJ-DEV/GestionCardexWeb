@@ -84,7 +84,7 @@ def list_avocats(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
 ):
-    query = db.query(Avocat).filter(Avocat.id.isnot(None))
+    query = db.query(Avocat).filter(Avocat.code.isnot(None))
     if q:
         like = f"%{q}%"
         query = query.filter(or_(Avocat.code.ilike(like), Avocat.nom.ilike(like), Avocat.prenom.ilike(like)))
@@ -112,7 +112,7 @@ def next_avocat_code(
 
 @router.get("/stats", response_model=StatsOut)
 def avocats_stats(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    base = db.query(Avocat).filter(Avocat.id.isnot(None))
+    base = db.query(Avocat).filter(Avocat.code.isnot(None))
     total = base.count()
     actifs = base.filter(Avocat.actpass == "A").count()
     inactifs = base.filter(Avocat.actpass == "P").count()
@@ -124,7 +124,8 @@ def avocats_stats(user: dict = Depends(get_current_user), db: Session = Depends(
 
 @router.get("/{avocat_id}", response_model=AvocatOut)
 def get_avocat(avocat_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    a = db.query(Avocat).filter_by(id=avocat_id).first()
+    # `avocat_id` dans les URLs représente désormais le `code` legacy (PK).
+    a = db.query(Avocat).filter_by(code=avocat_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     return AvocatOut(**avocat_to_dict(a, db))
@@ -140,11 +141,7 @@ def create_avocat(payload: AvocatCreate,
     if type_code not in {"A", "N", "P"}:
         raise HTTPException(status_code=422, detail="type_code invalide (A/N/P)")
 
-    new_id = str(uuid.uuid4())
     now = now_local()
-
-    # Auto-sync legacy : si facturation web activée, codeusager = code avocat (6 char).
-    # Le payload.codeusager est ignoré dans ce cas.
     factweb_on = bool(payload.factweb)
 
     last_err: Optional[Exception] = None
@@ -152,12 +149,11 @@ def create_avocat(payload: AvocatCreate,
         code = _generate_avocat_code(db, type_code)
         codeusager_value = code if factweb_on else (payload.codeusager or "")
         a = Avocat(
-            code=code, id=new_id, type_code=type_code,
+            code=code, type_code=type_code,
             nom=payload.nom, prenom=payload.prenom,
             sectbar=payload.sectbar or "",
             mega=bool_to_yn(payload.mega),
             actpass="A" if payload.actif else "P",
-            # `dateinscbarr` reçoit l'année (`annee_barreau` est l'alias front-end).
             dateinscbarr=(payload.annee_barreau or payload.dateinscbarr or ""),
             payable=bool_to_yn(payload.payable),
             codebar=payload.codebar or "", comm=payload.comm or "",
@@ -175,10 +171,10 @@ def create_avocat(payload: AvocatCreate,
             db.add(a)
             db.commit()
             db.refresh(a)
-            # Crée l'adresse principale si fournie
             if payload.adresse and any(payload.adresse.model_dump().values()):
                 _create_or_update_main_address(db, a, payload.adresse.model_dump(), user.get("email", ""))
-            write_audit(db, new_id, "create", user.get("email", ""),
+            # L'identifiant logique d'un avocat est désormais son `code`.
+            write_audit(db, code, "create", user.get("email", ""),
                         f"Création de la fiche {code} — {payload.nom}, {payload.prenom}")
             return AvocatOut(**avocat_to_dict(a, db))
         except IntegrityError as e:
@@ -193,7 +189,7 @@ def create_avocat(payload: AvocatCreate,
 def update_avocat(avocat_id: str, payload: AvocatUpdate,
                   user: dict = Depends(require_role("admin", "editeur")),
                   db: Session = Depends(get_db)):
-    a = db.query(Avocat).filter_by(id=avocat_id).first()
+    a = db.query(Avocat).filter_by(code=avocat_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
 
@@ -253,7 +249,7 @@ def update_avocat(avocat_id: str, payload: AvocatUpdate,
 @router.delete("/{avocat_id}")
 def delete_avocat(avocat_id: str, user: dict = Depends(require_role("admin")),
                   db: Session = Depends(get_db)):
-    a = db.query(Avocat).filter_by(id=avocat_id).first()
+    a = db.query(Avocat).filter_by(code=avocat_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     summary = f"Suppression de {a.code or ''} — {a.nom}, {a.prenom}"
@@ -263,8 +259,9 @@ def delete_avocat(avocat_id: str, user: dict = Depends(require_role("admin")),
         db.query(InfoMega).filter_by(code=code).delete()
         db.query(Inhpra).filter_by(code=code).delete()
         db.query(InfoDistrict).filter_by(code=code).delete()
-    db.query(Mandat).filter_by(avocat_id=avocat_id).delete()  # Mandats = table app web, lien par UUID
+        # Mandats = table app web ; depuis ce refactor, `avocat_id` y stocke le code.
+        db.query(Mandat).filter_by(avocat_id=code).delete()
     db.delete(a)
     db.commit()
-    write_audit(db, avocat_id, "delete", user.get("email", ""), summary)
+    write_audit(db, code, "delete", user.get("email", ""), summary)
     return {"ok": True}

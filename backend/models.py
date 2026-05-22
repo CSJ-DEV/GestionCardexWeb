@@ -22,9 +22,9 @@ from database import Base
 # ============================================================
 class Avocat(Base):
     __tablename__ = "Avocats"
-    # Legacy a `code` comme PK ; on conserve. `id` (UUID) est utilisé par l'app.
+    # Schéma legacy strict : PK = `code` (CHAR(6)), pas de colonne `id`.
+    # Côté API, on expose `id = code` (alias) pour la rétro-compat frontend.
     code = Column(String(10), primary_key=True)
-    id = Column(String(36), unique=True, index=True)  # UUID app
     type_code = Column(String(1), default="A", nullable=False)
     nom = Column(String(80), nullable=False)
     prenom = Column(String(80), nullable=False)

@@ -45,7 +45,7 @@ def _stream_pdf(pdf_bytes: bytes, filename: str) -> StreamingResponse:
 def _avo_for_mandat(db: Session, avocat_id: str, cache: dict[str, dict]) -> dict:
     if avocat_id in cache:
         return cache[avocat_id]
-    a = db.query(Avocat).filter_by(id=avocat_id).first()
+    a = db.query(Avocat).filter_by(code=avocat_id).first()
     cache[avocat_id] = (
         {"code": a.code or "", "nom": a.nom, "prenom": a.prenom, "type_code": a.type_code or "P"}
         if a else {}
@@ -59,7 +59,7 @@ def _iter_avocats_actifs_with_mega(db: Session):
     Pour chaque code, on précharge les districts en un seul aller-retour SQL
     (groupe par batch) au lieu de N requêtes individuelles.
     """
-    base_q = (db.query(Avocat).filter(Avocat.actif.is_(True), Avocat.id.isnot(None))
+    base_q = (db.query(Avocat).filter(Avocat.actpass == "A", Avocat.code.isnot(None))
                 .order_by(asc(Avocat.nom), asc(Avocat.prenom))
                 .yield_per(BATCH_SIZE))
 
@@ -74,22 +74,22 @@ def _iter_avocats_actifs_with_mega(db: Session):
 
 
 def _hydrate_batch(db: Session, batch: list[Avocat]):
-    """Précharge méga + districts pour un batch d'avocats (2 requêtes au lieu de 2N)."""
+    """Précharge méga + districts pour un batch d'avocats (2 requêtes au lieu de 2N).
+    Lien via `code` (legacy strict)."""
     codes = [a.code for a in batch if a.code]
-    ids = [a.id for a in batch if a.id]
     mega_map: dict[str, InfoMega] = {}
     districts_map: dict[str, list[int]] = {}
-    if ids:
-        for m in db.query(InfoMega).filter(InfoMega.avocat_id.in_(ids)):
-            mega_map[m.avocat_id] = m
     if codes:
+        for m in db.query(InfoMega).filter(InfoMega.code.in_(codes)):
+            mega_map[m.code] = m
         for r in db.query(InfoDistrict).filter(InfoDistrict.code.in_(codes)):
             districts_map.setdefault(r.code, []).append(r.nodist)
     for a in batch:
         d = avocat_to_dict(a)
-        m = mega_map.get(a.id)
+        m = mega_map.get(a.code or "")
         ds = districts_map.get(a.code or "", [])
-        d["_mega"] = mega_to_dict(m, ds) if m else {}
+        tous = len(ds) >= 18
+        d["_mega"] = mega_to_dict(m, ds, a.code or "", tous_districts=tous) if m else {}
         yield d
 
 
@@ -170,7 +170,7 @@ def rapport_liste_det_dist(user: dict = Depends(get_current_user),
 def rapport_liste_det_reg(user: dict = Depends(get_current_user),
                           db: Session = Depends(get_db)):
     # Ce rapport inclut TOUS les avocats (actifs + inactifs)
-    base_q = (db.query(Avocat).filter(Avocat.id.isnot(None))
+    base_q = (db.query(Avocat).filter(Avocat.code.isnot(None))
                 .order_by(asc(Avocat.annee_barreau), asc(Avocat.nom))
                 .yield_per(BATCH_SIZE))
     groups: dict[str, list[dict]] = {}

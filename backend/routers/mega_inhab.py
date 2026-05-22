@@ -45,7 +45,8 @@ _QC_DISTRICTS_TOTAL = 18
 
 
 def _get_avocat_or_404(db: Session, avocat_id: str) -> Avocat:
-    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    # `avocat_id` = `code` legacy depuis le refactor PK
+    avo = db.query(Avocat).filter_by(code=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     return avo
@@ -107,7 +108,7 @@ def upsert_mega(avocat_id: str, payload: InfoMegaIn,
 @router.delete("/{avocat_id}/mega")
 def delete_mega(avocat_id: str, user: dict = Depends(require_role("admin", "editeur")),
                 db: Session = Depends(get_db)):
-    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    avo = db.query(Avocat).filter_by(code=avocat_id).first()
     if avo and avo.code:
         db.query(InfoMega).filter_by(code=avo.code).delete()
         db.query(InfoDistrict).filter_by(code=avo.code).delete()
@@ -222,7 +223,7 @@ def reset_passwords(avocat_id: str,
     Retourne les 2 nouvelles valeurs en clair (one-shot — le client doit les
     copier). Les valeurs sont aussi accessibles via GET /passwords (TI only).
     """
-    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    avo = db.query(Avocat).filter_by(code=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     mp1 = _generate_unique_motpasse(db, Avocat.motpasse1)
@@ -244,7 +245,7 @@ def clear_passwords(avocat_id: str,
                     user: dict = Depends(require_role("admin", "editeur")),
                     db: Session = Depends(get_db)):
     """Efface les 2 mots de passe (équivalent du `objAvocat.motpasse1 = ""` VB)."""
-    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    avo = db.query(Avocat).filter_by(code=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     avo.motpasse1 = ""
@@ -263,7 +264,7 @@ def get_passwords(avocat_id: str,
                   user: dict = Depends(require_role("ti")),
                   db: Session = Depends(get_db)):
     """Retourne motpasse1 + motpasse2 en clair — réservé au rôle TI (audit-sensible)."""
-    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    avo = db.query(Avocat).filter_by(code=avocat_id).first()
     if not avo:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     write_audit(db, avocat_id, "pwd_view", user.get("email", ""),
@@ -312,7 +313,7 @@ def export_audit_csv(avocat_id: str, user: dict = Depends(require_role("admin"))
     from fastapi.responses import StreamingResponse
     from models import AuditLog, Avocat
 
-    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    avo = db.query(Avocat).filter_by(code=avocat_id).first()
     label = f"{avo.code or 'NA'}_{avo.nom}" if avo else "inconnu"
     label = "".join(c if c.isalnum() or c in "._-" else "_" for c in label)
 

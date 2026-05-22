@@ -85,7 +85,9 @@ def avocat_to_dict(a: Avocat, db: Optional[Session] = None) -> dict:
     qui n'existent pas en base. On les déduit ici des colonnes legacy.
     """
     return {
-        "id": a.id or "",
+        # Pas de colonne `id` en legacy — on expose le `code` sous ce nom pour
+        # garder l'API stable côté frontend.
+        "id": a.code or "",
         "code": a.code or "",
         "type_code": a.type_code or "A",
         "nom": a.nom or "",

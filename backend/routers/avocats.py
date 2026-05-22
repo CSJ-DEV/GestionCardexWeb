@@ -258,12 +258,12 @@ def delete_avocat(avocat_id: str, user: dict = Depends(require_role("admin")),
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     summary = f"Suppression de {a.code or ''} — {a.nom}, {a.prenom}"
     code = a.code
-    db.query(Adresse).filter_by(avocat_id=avocat_id).delete()
-    db.query(InfoMega).filter_by(avocat_id=avocat_id).delete()
-    db.query(Inhpra).filter_by(avocat_id=avocat_id).delete()
-    db.query(Mandat).filter_by(avocat_id=avocat_id).delete()
     if code:
+        db.query(Adresse).filter_by(code=code).delete()
+        db.query(InfoMega).filter_by(code=code).delete()
+        db.query(Inhpra).filter_by(code=code).delete()
         db.query(InfoDistrict).filter_by(code=code).delete()
+    db.query(Mandat).filter_by(avocat_id=avocat_id).delete()  # Mandats = table app web, lien par UUID
     db.delete(a)
     db.commit()
     write_audit(db, avocat_id, "delete", user.get("email", ""), summary)

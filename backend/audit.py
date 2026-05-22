@@ -147,10 +147,13 @@ def adresse_to_dict(adr: Adresse) -> dict:
     }
 
 
-def mega_to_dict(m: InfoMega, districts: list[int]) -> dict:
+def mega_to_dict(m: InfoMega, districts: list[int], avocat_id: str = "",
+                 tous_districts: bool = False) -> dict:
     return {
-        "id": m.id,
-        "avocat_id": m.avocat_id or "",
+        # Pas d'`id` propre — le profil Méga est identifié par `code` (1↔1 avocat).
+        "id": m.code or "",
+        "avocat_id": avocat_id,
+        "code": m.code or "",
         "sectbar": m.sectbar or "",
         "districthab": m.districthab or "",
         "francais": yn_to_bool(m.francais),
@@ -164,21 +167,21 @@ def mega_to_dict(m: InfoMega, districts: list[int]) -> dict:
         "commentaire": m.commentaire or "",
         "dateinsc": m.dateinsc or "",
         "districts": districts,
-        "tous_districts": bool(m.tous_districts),
-        "updated_at": m.updated_at or "",
+        "tous_districts": tous_districts,
+        "updated_at": m.datemodif or "",
         "usermodif": m.usermodif or "",
     }
 
 
-def inhab_to_dict(i: Inhpra) -> dict:
+def inhab_to_dict(i: Inhpra, avocat_id: str = "") -> dict:
     return {
-        "id": i.uuid or str(i.Id),
-        "avocat_id": i.avocat_id or "",
+        # `Id` INT legacy sérialisé en string pour l'API REST
+        "id": str(i.Id) if i.Id is not None else "",
+        "avocat_id": avocat_id,
+        "code": i.code or "",
         "datedeb": i.datedeb or "",
         "datefin": i.datefin or "",
         "comm": i.comm or "",
-        "created_at": i.created_at or "",
-        "updated_at": i.updated_at or "",
     }
 
 

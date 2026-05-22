@@ -103,34 +103,9 @@ def migrate_card_avo() -> None:
     if added:
         print(f"  ✅ Adresses : {added} colonne(s) ajoutée(s)")
 
-    # ----- infomega : ajout colonnes app -----
-    mega_cols = [
-        ('id', '"id" TEXT'),
-        ('avocat_id', '"avocat_id" TEXT'),
-        ('tous_districts', '"tous_districts" INTEGER NOT NULL DEFAULT 0'),
-        ('created_at', '"created_at" TEXT'),
-        ('updated_at', '"updated_at" TEXT'),
-    ]
-    added = 0
-    for col, ddl in mega_cols:
-        if _add_column_if_missing(cur, "infomega", col, ddl):
-            added += 1
-    if added:
-        print(f"  ✅ infomega : {added} colonne(s) ajoutée(s)")
+    # ----- infomega : aucune colonne ajoutée (schéma legacy strict, lien par `code`) -----
 
-    # ----- inhpra : ajout colonnes app -----
-    inhpra_cols = [
-        ('uuid', '"uuid" TEXT'),  # legacy a déjà un Id INTEGER, on ajoute uuid
-        ('avocat_id', '"avocat_id" TEXT'),
-        ('created_at', '"created_at" TEXT'),
-        ('updated_at', '"updated_at" TEXT'),
-    ]
-    added = 0
-    for col, ddl in inhpra_cols:
-        if _add_column_if_missing(cur, "inhpra", col, ddl):
-            added += 1
-    if added:
-        print(f"  ✅ inhpra : {added} colonne(s) ajoutée(s)")
+    # ----- inhpra : aucune colonne ajoutée (schéma legacy strict, lien par `code`) -----
 
     # ----- Tables app web : AppUsers, AuditLog, Connexions, Mandats -----
     cur.executescript('''

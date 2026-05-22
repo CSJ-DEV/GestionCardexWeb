@@ -13,34 +13,66 @@ from models import Avocat, InfoMega, InfoDistrict, Inhpra, bool_to_yn
 from schemas import InfoMegaIn, InhabIn
 from security import get_current_user, now_local, require_role
 
+
+def _parse_date(value):
+    """Convertit une string ISO en datetime. Renvoie None si vide/invalide."""
+    if not value:
+        return None
+    if hasattr(value, "year"):  # déjà datetime/date
+        return value
+    from datetime import datetime as _dt
+    s = str(value).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return _dt.strptime(s, fmt)
+        except ValueError:
+            continue
+    # Fallback ISO (gère les fuseaux)
+    try:
+        return _dt.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
 router = APIRouter(prefix="/avocats", tags=["mega-inhab-web"])
 
 
 # ---------- Méga ----------
+# Total des districts QC (référence pour déduire `tous_districts`).
+# Voir frontend `QC_DISTRICTS` : 18 districts judiciaires.
+_QC_DISTRICTS_TOTAL = 18
+
+
+def _get_avocat_or_404(db: Session, avocat_id: str) -> Avocat:
+    avo = db.query(Avocat).filter_by(id=avocat_id).first()
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    return avo
+
+
 @router.get("/{avocat_id}/mega")
 def get_mega(avocat_id: str, user: dict = Depends(get_current_user),
              db: Session = Depends(get_db)):
-    m = db.query(InfoMega).filter_by(avocat_id=avocat_id).first()
+    avo = _get_avocat_or_404(db, avocat_id)
+    m = db.query(InfoMega).filter_by(code=avo.code).first()
     if not m:
         return {}
-    avo = db.query(Avocat).filter_by(id=avocat_id).first()
-    districts = []
-    if avo and avo.code:
-        districts = [d.nodist for d in db.query(InfoDistrict).filter_by(code=avo.code).all()]
-    return mega_to_dict(m, districts)
+    districts = [d.nodist for d in db.query(InfoDistrict).filter_by(code=avo.code).all()]
+    # Déduction : tous_districts si toutes les options du QC sont cochées
+    tous = len(districts) >= _QC_DISTRICTS_TOTAL
+    return mega_to_dict(m, districts, avocat_id, tous_districts=tous)
 
 
 @router.put("/{avocat_id}/mega")
 def upsert_mega(avocat_id: str, payload: InfoMegaIn,
                 user: dict = Depends(require_role("admin", "editeur")),
                 db: Session = Depends(get_db)):
-    avo = db.query(Avocat).filter_by(id=avocat_id).first()
-    if not avo:
-        raise HTTPException(status_code=404, detail="Avocat introuvable")
+    avo = _get_avocat_or_404(db, avocat_id)
     now = now_local()
-    m = db.query(InfoMega).filter_by(avocat_id=avocat_id).first()
+    m = db.query(InfoMega).filter_by(code=avo.code).first()
     if not m:
-        m = InfoMega(id=str(uuid.uuid4()), avocat_id=avocat_id, code=avo.code, created_at=now)
+        m = InfoMega(code=avo.code)
         db.add(m)
     m.sectbar = payload.sectbar or ""
     m.districthab = payload.districthab or ""
@@ -53,10 +85,9 @@ def upsert_mega(avocat_id: str, payload: InfoMegaIn,
     m.art672 = bool_to_yn(payload.art672)
     m.art684 = bool_to_yn(payload.art684)
     m.commentaire = payload.commentaire or ""
-    m.dateinsc = payload.dateinsc or ""
-    m.tous_districts = bool(payload.tous_districts)
+    m.dateinsc = _parse_date(payload.dateinsc)
     m.mega = "O"
-    m.updated_at = now
+    m.datemodif = now
     m.usermodif = user.get("email", "")
 
     if avo.code:
@@ -66,6 +97,7 @@ def upsert_mega(avocat_id: str, payload: InfoMegaIn,
 
     avo.mega = "O"
     avo.updated_at = now
+    avo.datemodif = now
     db.commit()
     write_audit(db, avocat_id, "mega_update", user.get("email", ""),
                 f"Profil Méga mis à jour (sectbar={payload.sectbar or '—'}, exp={payload.experience or 0} an(s), districts={len(payload.districts or [])})")
@@ -76,10 +108,9 @@ def upsert_mega(avocat_id: str, payload: InfoMegaIn,
 def delete_mega(avocat_id: str, user: dict = Depends(require_role("admin", "editeur")),
                 db: Session = Depends(get_db)):
     avo = db.query(Avocat).filter_by(id=avocat_id).first()
-    db.query(InfoMega).filter_by(avocat_id=avocat_id).delete()
     if avo and avo.code:
+        db.query(InfoMega).filter_by(code=avo.code).delete()
         db.query(InfoDistrict).filter_by(code=avo.code).delete()
-    if avo:
         avo.mega = "N"
     db.commit()
     write_audit(db, avocat_id, "mega_delete", user.get("email", ""), "Profil Méga supprimé")
@@ -90,41 +121,45 @@ def delete_mega(avocat_id: str, user: dict = Depends(require_role("admin", "edit
 @router.get("/{avocat_id}/inhabilites")
 def list_inhab(avocat_id: str, user: dict = Depends(get_current_user),
                db: Session = Depends(get_db)):
-    rows = (db.query(Inhpra).filter_by(avocat_id=avocat_id)
+    avo = _get_avocat_or_404(db, avocat_id)
+    rows = (db.query(Inhpra).filter_by(code=avo.code)
               .order_by(desc(Inhpra.datedeb)).limit(200).all())
-    return [inhab_to_dict(i) for i in rows]
+    return [inhab_to_dict(i, avocat_id) for i in rows]
 
 
 @router.post("/{avocat_id}/inhabilites", status_code=201)
 def create_inhab(avocat_id: str, payload: InhabIn,
                  user: dict = Depends(require_role("admin", "editeur")),
                  db: Session = Depends(get_db)):
-    avo = db.query(Avocat).filter_by(id=avocat_id).first()
-    if not avo:
-        raise HTTPException(status_code=404, detail="Avocat introuvable")
-    now = now_local()
-    i = Inhpra(uuid=str(uuid.uuid4()), avocat_id=avocat_id, code=avo.code,
-               datedeb=payload.datedeb, datefin=payload.datefin or "",
-               comm=payload.comm or "", created_at=now, updated_at=now)
+    avo = _get_avocat_or_404(db, avocat_id)
+    i = Inhpra(code=avo.code,
+               datedeb=_parse_date(payload.datedeb),
+               datefin=_parse_date(payload.datefin),
+               comm=payload.comm or "")
     db.add(i)
     db.commit()
     db.refresh(i)
     write_audit(db, avocat_id, "inhab_create", user.get("email", ""),
                 f"Période d'inhabilité ajoutée : {payload.datedeb} → {payload.datefin or 'en cours'}")
-    return inhab_to_dict(i)
+    return inhab_to_dict(i, avocat_id)
 
 
 @router.put("/{avocat_id}/inhabilites/{inhab_id}")
 def update_inhab(avocat_id: str, inhab_id: str, payload: InhabIn,
                  user: dict = Depends(require_role("admin", "editeur")),
                  db: Session = Depends(get_db)):
-    i = db.query(Inhpra).filter_by(uuid=inhab_id, avocat_id=avocat_id).first()
+    avo = _get_avocat_or_404(db, avocat_id)
+    # `inhab_id` est l'`Id` INT legacy (sérialisé en string côté API)
+    try:
+        legacy_id = int(inhab_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Période introuvable")
+    i = db.query(Inhpra).filter_by(Id=legacy_id, code=avo.code).first()
     if not i:
         raise HTTPException(status_code=404, detail="Période introuvable")
-    i.datedeb = payload.datedeb
-    i.datefin = payload.datefin or ""
+    i.datedeb = _parse_date(payload.datedeb)
+    i.datefin = _parse_date(payload.datefin)
     i.comm = payload.comm or ""
-    i.updated_at = now_local()
     db.commit()
     write_audit(db, avocat_id, "inhab_update", user.get("email", ""),
                 f"Période d'inhabilité modifiée : {payload.datedeb} → {payload.datefin or 'en cours'}")
@@ -135,7 +170,12 @@ def update_inhab(avocat_id: str, inhab_id: str, payload: InhabIn,
 def delete_inhab(avocat_id: str, inhab_id: str,
                  user: dict = Depends(require_role("admin", "editeur")),
                  db: Session = Depends(get_db)):
-    i = db.query(Inhpra).filter_by(uuid=inhab_id, avocat_id=avocat_id).first()
+    avo = _get_avocat_or_404(db, avocat_id)
+    try:
+        legacy_id = int(inhab_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Période introuvable")
+    i = db.query(Inhpra).filter_by(Id=legacy_id, code=avo.code).first()
     if not i:
         raise HTTPException(status_code=404, detail="Période introuvable")
     summary = f"Période supprimée : {i.datedeb or '?'} → {i.datefin or 'en cours'}"

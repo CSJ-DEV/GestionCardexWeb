@@ -84,9 +84,10 @@ class Adresse(Base):
 
 class InfoMega(Base):
     __tablename__ = "infomega"
-    id = Column(String(36), primary_key=True)
-    avocat_id = Column(String(36), index=True)
-    code = Column(String(6))
+    # Schéma legacy strict : pas d'`id` ni d'`avocat_id`. La PK logique est `code`
+    # (un seul profil Méga par avocat). SQLAlchemy exige une PK déclarée — on
+    # utilise `code`.
+    code = Column(String(6), primary_key=True)
     francais = Column(String(1), default="N")  # 'O'/'N' legacy
     anglais = Column(String(1), default="N")
     autres = Column(String(40), default="")
@@ -103,9 +104,6 @@ class InfoMega(Base):
     usermodif = Column(String(20), default="")
     datemodif = Column(DateTime)  # legacy datetime
     sectbar = Column(String(100), default="")
-    tous_districts = Column(Boolean, default=False)
-    created_at = Column(DateTime)  # datetime2(0)
-    updated_at = Column(DateTime)  # datetime2(0)
 
 
 class InfoDistrict(Base):
@@ -119,16 +117,13 @@ class InfoDistrict(Base):
 
 class Inhpra(Base):
     __tablename__ = "inhpra"
-    # Legacy a `Id` INTEGER autoincrement, mais on utilise `uuid` côté app
+    # Schéma legacy strict : PK = `Id` (INT autoincrement legacy). Lien à
+    # l'avocat via `code`. Pas de colonnes `uuid`/`avocat_id`/`created_at`.
     Id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(String(36), index=True)  # UUID app
-    avocat_id = Column(String(36), index=True)
     code = Column(String(6))
     datedeb = Column(DateTime)  # date début inhabilité
     datefin = Column(DateTime)  # date fin inhabilité
     comm = Column(Text)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
 
 
 # ============================================================

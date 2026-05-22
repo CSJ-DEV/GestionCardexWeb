@@ -51,9 +51,7 @@ def _create_or_update_main_address(db: Session, a: Avocat, data: dict, user_emai
              .first())
     if adr is None:
         adr = Adresse(
-            id=str(uuid.uuid4()),
             RowId=str(uuid.uuid4()),
-            avocat_id=a.id,
             code=a.code,
             courant="O",
             dateadr=now,
@@ -61,9 +59,12 @@ def _create_or_update_main_address(db: Session, a: Avocat, data: dict, user_emai
         )
         db.add(adr)
     for field in ("address", "adresse2", "adresse3", "ville", "province",
-                  "codepostal", "telephone", "telephone2", "fax", "email"):
+                  "codepostal", "telephone", "telephone2", "fax"):
         if field in data:
             setattr(adr, field, data.get(field) or "")
+    # `email` côté front-end → `adremail` legacy (colonne unique)
+    if "email" in data:
+        adr.adremail = data.get("email") or ""
     adr.updated_at = now
     adr.datemodif = now
     adr.usermodif = user_email

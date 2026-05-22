@@ -44,16 +44,16 @@ def create_adresse(avocat_id: str, payload: AdresseModel, courant: bool = False,
                    db: Session = Depends(get_db)):
     avo = _get_avocat(db, avocat_id)
     now = now_iso()
-    new_id = str(uuid.uuid4())
+    new_rowid = str(uuid.uuid4())
     if courant:
         db.query(Adresse).filter(Adresse.code == avo.code).update({"courant": "N"})
     adr = Adresse(
-        id=new_id, RowId=new_id, code=avo.code,
+        RowId=new_rowid, code=avo.code,
         address=payload.address or "", adresse2=payload.adresse2 or "",
         adresse3=payload.adresse3 or "", ville=payload.ville or "",
         province=payload.province or "", codepostal=payload.codepostal or "",
         telephone=payload.telephone or "", telephone2=payload.telephone2 or "",
-        fax=payload.fax or "", email=payload.email or "", adremail=payload.email or "",
+        fax=payload.fax or "", adremail=payload.email or "",
         courant=bool_to_yn(courant),
         dateadr=now, datemodif=now,
         created_at=now, updated_at=now,
@@ -76,11 +76,11 @@ def update_adresse(avocat_id: str, adresse_id: str, payload: AdresseModel, coura
                    user: dict = Depends(require_role("admin", "editeur")),
                    db: Session = Depends(get_db)):
     avo = _get_avocat(db, avocat_id)
+    # Lookup par RowId (UUID legacy) en priorité, puis fallback noseq legacy
     adr = (db.query(Adresse)
-             .filter(Adresse.code == avo.code, Adresse.id == adresse_id)
+             .filter(Adresse.code == avo.code, Adresse.RowId == adresse_id)
              .first())
     if not adr:
-        # Tentative legacy : id correspond peut-être à noseq (INT en string)
         try:
             adr = (db.query(Adresse)
                      .filter(Adresse.code == avo.code, Adresse.noseq == int(adresse_id))
@@ -91,15 +91,16 @@ def update_adresse(avocat_id: str, adresse_id: str, payload: AdresseModel, coura
         raise HTTPException(status_code=404, detail="Adresse introuvable")
     now = now_iso()
     for f in ("address", "adresse2", "adresse3", "ville", "province", "codepostal",
-              "telephone", "telephone2", "fax", "email"):
+              "telephone", "telephone2", "fax"):
         setattr(adr, f, getattr(payload, f) or "")
+    # `email` côté front-end → `adremail` legacy
     adr.adremail = payload.email or ""
     adr.courant = bool_to_yn(courant)
     adr.updated_at = now
     adr.datemodif = now
     adr.usermodif = user.get("email", "")
     if courant:
-        (db.query(Adresse).filter(Adresse.code == avo.code, Adresse.id != adresse_id)
+        (db.query(Adresse).filter(Adresse.code == avo.code, Adresse.RowId != adr.RowId)
            .update({"courant": "N"}))
         if adr.noseq is not None:
             avo.adrcour = adr.noseq
@@ -116,7 +117,7 @@ def delete_adresse(avocat_id: str, adresse_id: str,
                    db: Session = Depends(get_db)):
     avo = _get_avocat(db, avocat_id)
     adr = (db.query(Adresse)
-             .filter(Adresse.code == avo.code, Adresse.id == adresse_id)
+             .filter(Adresse.code == avo.code, Adresse.RowId == adresse_id)
              .first())
     if not adr:
         raise HTTPException(status_code=404, detail="Adresse introuvable")

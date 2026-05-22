@@ -124,10 +124,9 @@ def avocat_to_dict(a: Avocat, db: Optional[Session] = None) -> dict:
 
 def adresse_to_dict(adr: Adresse) -> dict:
     return {
-        "id": adr.id,
-        # Renvoyé pour rétrocompat front-end (l'app web utilisait avocat_id) :
-        # côté backend on n'utilise plus que `code` legacy pour la jointure.
-        "avocat_id": "",
+        # Le frontend attend `id` ; on expose RowId legacy sous ce nom pour
+        # garder l'API REST stable sans dupliquer de colonne.
+        "id": adr.RowId,
         "code": adr.code or "",
         "address": adr.address or "",
         "adresse2": adr.adresse2 or "",
@@ -138,7 +137,7 @@ def adresse_to_dict(adr: Adresse) -> dict:
         "telephone": adr.telephone or "",
         "telephone2": adr.telephone2 or "",
         "fax": adr.fax or "",
-        "email": adr.email or adr.adremail or "",
+        "email": adr.adremail or "",
         "courant": yn_to_bool(adr.courant),
         "created_at": adr.created_at or "",
         "updated_at": adr.updated_at or "",

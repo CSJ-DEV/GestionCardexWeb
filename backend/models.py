@@ -58,11 +58,9 @@ class Avocat(Base):
 
 class Adresse(Base):
     __tablename__ = "Adresses"
-    # PK legacy : code + noseq. `id` (UUID app) sert uniquement aux API REST.
-    id = Column(String(36), primary_key=True)  # UUID app
-    RowId = Column(String(36), nullable=False)  # legacy uniqueidentifier
+    # PK = RowId legacy (uniqueidentifier) — pas de doublon avec un nouveau `id`.
+    RowId = Column(String(36), primary_key=True)
     code = Column(String(6), nullable=False)  # FK legacy → Avocats.code
-    # Note : legacy column "adresse" est mappée à "address" pour cohérence avec le frontend
     address = Column(String(100), default="")
     adresse2 = Column(String(30), default="")
     adresse3 = Column(String(30), default="")
@@ -72,8 +70,7 @@ class Adresse(Base):
     telephone = Column(String(15), default="")
     telephone2 = Column(String(15), default="")
     fax = Column(String(15), default="")
-    email = Column(String(50), default="")
-    adremail = Column(String(50))  # legacy (gardé pour SQL Server)
+    adremail = Column(String(50), default="")  # courriel legacy (unique)
     noseq = Column(Integer)
     courant = Column(String(1), default="N")  # 'O'/'N'
     dateadr = Column(String(30))

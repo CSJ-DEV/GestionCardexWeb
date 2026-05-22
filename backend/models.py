@@ -61,7 +61,7 @@ class Adresse(Base):
     # PK = RowId legacy (uniqueidentifier) — pas de doublon avec un nouveau `id`.
     RowId = Column(String(36), primary_key=True)
     code = Column(String(6), nullable=False)  # FK legacy → Avocats.code
-    address = Column(String(100), default="")
+    address = Column("adresse", String(100), default="")  # legacy: colonne `adresse`
     adresse2 = Column(String(30), default="")
     adresse3 = Column(String(30), default="")
     ville = Column(String(40), default="")

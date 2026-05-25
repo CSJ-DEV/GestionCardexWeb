@@ -52,10 +52,15 @@ for r in (auth_router, avocats_router, adresses_router, mega_inhab_router, audit
 app.include_router(api_router)
 
 # CORS
+# - FRONTEND_URL : domaine principal (Azure Static Web Apps en prod)
+# - localhost : développement local
+# - allow_origin_regex : autorise les tunnels VS Code (*.devtunnels.ms)
+#   et GitHub Codespaces (*.app.github.dev) pour les démos / tests distants
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[frontend_url, "http://localhost:3000"],
+    allow_origin_regex=r"https://[a-z0-9-]+\.(devtunnels\.ms|app\.github\.dev|ngrok-free\.app|ngrok\.io|loca\.lt)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

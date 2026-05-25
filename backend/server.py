@@ -17,7 +17,7 @@ from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
 from database import engine, get_db, Base, DATABASE_URL
-from models import AppUser, Connexion
+from models import AppUser, Avocat, Connexion, bool_to_yn
 from security import hash_password, now_local, verify_password
 
 # Routers
@@ -158,6 +158,32 @@ def on_startup():
                 if old:
                     db.delete(old)
             db.commit()
+
+            # Seed des avocats de démo (uniquement si la table est vide).
+            # Permet d'avoir un environnement dev fonctionnel après reset DB.
+            if db.query(Avocat).count() == 0:
+                now = now_local()
+                demo_avocats = [
+                    ("A00001", "Tremblay", "Marie",   "A", "O", "A", "2015", "514-555-1001"),
+                    ("A00002", "Gagnon",   "Jean",    "A", "N", "A", "2010", "514-555-1002"),
+                    ("A00003", "Roy",      "Sophie",  "A", "O", "A", "2018", "514-555-1003"),
+                    ("P10101", "Bouchard", "Luc",     "P", "N", "A", "2008", "418-555-2001"),
+                    ("N20001", "Lavoie",   "Nathalie","N", "N", "A", "2012", "450-555-3001"),
+                ]
+                for code, nom, prenom, tc, mega, actpass, annee, _tel in demo_avocats:
+                    db.add(Avocat(
+                        code=code, type_code=tc, nom=nom, prenom=prenom,
+                        sectbar="Droit civil",
+                        mega=mega, actpass=actpass, dateinscbarr=annee,
+                        payable="O", codebar="", comm="Avocat de démo (dev seed)",
+                        nas="", depodirect="N", factweb="N", confweb="N",
+                        villeref="Montréal", surveil="N", neq="",
+                        codeusager="", motpasse1="", motpasse2="",
+                        created_at=now, updated_at=now, datemodif=now,
+                        usermodif="seed@gestioncardex.qc",
+                    ))
+                db.commit()
+                logger.info(f"Avocats de démo créés : {len(demo_avocats)} fiches.")
         else:
             logger.info("Mode production (SQL Server) — pas de seed automatique des connexions.")
             # Sanity check : alerter le DBA si la table Connexions est vide.

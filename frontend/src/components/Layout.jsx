@@ -1,10 +1,11 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { LayoutGrid, Users, LogOut, Scale, Search, ShieldCheck, FileText, Database, UserCircle2 } from "lucide-react";
+import { LayoutGrid, Users, LogOut, Search, ShieldCheck, FileText, Database, UserCircle2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import api from "@/lib/api";
+import logo from "@/assets/logo.png";
 
 const roleLabel = { admin: "Administrateur", ti: "Technicien TI", editeur: "Éditeur", lecteur: "Lecteur" };
 
@@ -44,9 +45,7 @@ export default function Layout() {
             <aside className="w-64 border-r border-slate-200 bg-white flex flex-col" data-testid="sidebar">
                 <div className="px-6 py-6 border-b border-slate-200">
                     <div className="flex items-center gap-2.5">
-                        <div className="h-9 w-9 rounded-md bg-[#0033A0] text-white flex items-center justify-center">
-                            <Scale size={18} strokeWidth={2.25} />
-                        </div>
+                        <img src={logo} alt="GestionCardex" className="h-10 w-10 object-contain" data-testid="sidebar-logo" />
                         <div>
                             <div className="font-display font-bold text-[15px] tracking-tight text-slate-900">
                                 GestionCardex

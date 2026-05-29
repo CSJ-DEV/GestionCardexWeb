@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
-import { Scale } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import logo from "@/assets/logo-ajq.jpg";
 
 export default function Login() {
     const { user, login } = useAuth();
@@ -29,16 +29,13 @@ export default function Login() {
     return (
         <div className="min-h-screen flex items-center justify-center bg-white px-6 py-10">
             <div className="w-full max-w-sm">
-                <div className="flex items-center gap-2.5 mb-10">
-                    <div className="h-10 w-10 rounded-md bg-[#0033A0] text-white flex items-center justify-center">
-                        <Scale size={20} strokeWidth={2.25} />
-                    </div>
-                    <div>
-                        <div className="font-display font-bold text-lg tracking-tight text-slate-900">
-                            GestionCardex
-                        </div>
-                        <div className="overline" style={{ fontSize: 10 }}>Plateforme légale</div>
-                    </div>
+                <div className="mb-10">
+                    <img
+                        src={logo}
+                        alt="Aide juridique du Québec — Commission des services juridiques"
+                        className="w-full h-auto block"
+                        data-testid="login-logo"
+                    />
                 </div>
 
                 <div className="overline mb-2">Authentification</div>

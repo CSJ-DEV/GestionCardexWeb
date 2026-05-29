@@ -40,7 +40,7 @@ export default function Login() {
 
                 <div className="overline mb-2">Authentification</div>
                 <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 mb-2">
-                    Bienvenue.
+                    Gestion Cardex et FVI
                 </h1>
                 <p className="text-sm text-slate-600 mb-8">
                     Connectez-vous pour accéder à la gestion des avocats.

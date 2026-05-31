@@ -4,6 +4,9 @@ import { Users, ShieldCheck, ShieldAlert, Sparkles, ArrowRight } from "lucide-re
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
+// Format français : "99 999" (espace insécable pour les milliers)
+const fmt = (n) => Number(n ?? 0).toLocaleString("fr-CA").replace(/\u00A0/g, " ").replace(/,/g, " ");
+
 const StatCard = ({ icon: Icon, label, value, accent, testId }) => (
     <div
         className="bg-white border border-slate-200 rounded-md p-5 hover:shadow-sm transition-shadow"
@@ -69,28 +72,28 @@ export default function Dashboard() {
                 <StatCard
                     icon={Users}
                     label="Total Avocats"
-                    value={loading ? "…" : stats.total}
+                    value={loading ? "…" : fmt(stats.total)}
                     accent="#0033A0"
                     testId="stat-total"
                 />
                 <StatCard
                     icon={ShieldCheck}
                     label="Actifs"
-                    value={loading ? "…" : stats.actifs}
+                    value={loading ? "…" : fmt(stats.actifs)}
                     accent="#16A34A"
                     testId="stat-actifs"
                 />
                 <StatCard
                     icon={ShieldAlert}
                     label="Inactifs"
-                    value={loading ? "…" : stats.inactifs}
+                    value={loading ? "…" : fmt(stats.inactifs)}
                     accent="#DC2626"
                     testId="stat-inactifs"
                 />
                 <StatCard
                     icon={Sparkles}
                     label="Méga"
-                    value={loading ? "…" : stats.mega}
+                    value={loading ? "…" : fmt(stats.mega)}
                     accent="#7C3AED"
                     testId="stat-mega"
                 />
@@ -99,7 +102,7 @@ export default function Dashboard() {
             <div className="bg-white border border-slate-200 rounded-md p-8">
                 <div className="overline mb-2">Activité</div>
                 <h2 className="font-display text-2xl font-bold tracking-tight text-slate-900 mb-1">
-                    {stats.nouveaux_30j} {stats.nouveaux_30j > 1 ? "nouveaux avocats" : "nouvel avocat"}{" "}
+                    {fmt(stats.nouveaux_30j)} {stats.nouveaux_30j > 1 ? "nouveaux avocats" : "nouvel avocat"}{" "}
                     sur les 30 derniers jours
                 </h2>
                 <p className="text-sm text-slate-600">

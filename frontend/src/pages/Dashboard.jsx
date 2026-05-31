@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Users, ShieldCheck, ShieldAlert, Sparkles, ArrowRight } from "lucide-react";
 import api from "@/lib/api";
+import { fmt } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-
-// Format français : "99 999" (espace insécable pour les milliers)
-const fmt = (n) => Number(n ?? 0).toLocaleString("fr-CA").replace(/\u00A0/g, " ").replace(/,/g, " ");
 
 const StatCard = ({ icon: Icon, label, value, accent, testId }) => (
     <div

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { fmt } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -123,9 +124,9 @@ export const HistoriqueTab = ({ avocatId }) => {
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-slate-500" data-testid="hist-count">
-                        {total} entrée{total > 1 ? "s" : ""}
+                        {fmt(total)} entrée{total > 1 ? "s" : ""}
                         {actionFilter !== "all" && " (filtré)"}
-                        {total > 0 && ` — page ${page} sur ${totalPages}`}
+                        {total > 0 && ` — page ${fmt(page)} sur ${fmt(totalPages)}`}
                     </p>
                 </div>
                 <Button
@@ -177,7 +178,7 @@ export const HistoriqueTab = ({ avocatId }) => {
                     >
                         Précédent
                     </Button>
-                    <span className="text-xs text-slate-500">Page {page} / {totalPages}</span>
+                    <span className="text-xs text-slate-500">Page {fmt(page)} / {fmt(totalPages)}</span>
                     <Button
                         variant="outline"
                         size="sm"

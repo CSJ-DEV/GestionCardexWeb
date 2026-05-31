@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Plus, Search, Pencil, Trash2 } from "lucide-react";
 import api, { formatApiError } from "@/lib/api";
+import { fmt } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,15 +97,15 @@ export default function AvocatsList() {
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
     return (
-        <div className="space-y-6" data-testid="avocats-page">
-            <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div className="h-full flex flex-col gap-4 -m-6 md:-m-8 p-6 md:p-8" data-testid="avocats-page">
+            <div className="flex items-end justify-between gap-4 flex-wrap shrink-0">
                 <div>
                     <div className="overline mb-2">Répertoire</div>
                     <h1 className="font-display text-4xl font-bold tracking-tight text-slate-900">
                         Avocats
                     </h1>
                     <p className="text-sm text-slate-600 mt-1">
-                        {total} {total > 1 ? "fiches" : "fiche"} • Gérer le registre central des avocats.
+                        {fmt(total)} {total > 1 ? "fiches" : "fiche"} • Gérer le registre central des avocats.
                     </p>
                 </div>
                 {canEdit && (
@@ -119,7 +120,7 @@ export default function AvocatsList() {
             </div>
 
             {/* Filters */}
-            <div className="bg-white border border-slate-200 rounded-md p-4 flex items-center gap-3 flex-wrap">
+            <div className="bg-white border border-slate-200 rounded-md p-4 flex items-center gap-3 flex-wrap shrink-0">
                 <div className="relative flex-1 min-w-[240px]">
                     <Search
                         size={14}
@@ -155,17 +156,17 @@ export default function AvocatsList() {
             </div>
 
             {/* Table */}
-            <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-md overflow-auto flex-1 min-h-0">
                 <Table data-testid="avocats-table">
-                    <TableHeader>
+                    <TableHeader className="sticky top-0 bg-slate-50 z-10">
                         <TableRow className="bg-slate-50">
-                            <TableHead className="w-[100px]">Code</TableHead>
-                            <TableHead>Nom</TableHead>
-                            <TableHead>Prénom</TableHead>
-                            <TableHead>Section barreau</TableHead>
-                            <TableHead>Ville</TableHead>
-                            <TableHead>Statut</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
+                            <TableHead className="w-[100px] h-9 py-1">Code</TableHead>
+                            <TableHead className="h-9 py-1">Nom</TableHead>
+                            <TableHead className="h-9 py-1">Prénom</TableHead>
+                            <TableHead className="h-9 py-1">Section barreau</TableHead>
+                            <TableHead className="h-9 py-1">Ville</TableHead>
+                            <TableHead className="h-9 py-1">Statut</TableHead>
+                            <TableHead className="h-9 py-1 text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -189,7 +190,7 @@ export default function AvocatsList() {
                             items.map((a) => (
                                 <TableRow
                                     key={a.id}
-                                    className="hover:bg-slate-50 cursor-pointer"
+                                    className="hover:bg-slate-50 cursor-pointer [&>td]:py-1.5"
                                     onClick={() => setEditing(a)}
                                     data-testid={`avocat-row-${a.code}`}
                                 >
@@ -241,6 +242,7 @@ export default function AvocatsList() {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
+                                                className="h-7 w-7"
                                                 onClick={() => setEditing(a)}
                                                 data-testid={`edit-avocat-${a.code}`}
                                             >
@@ -251,7 +253,7 @@ export default function AvocatsList() {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="text-red-600 hover:text-red-700"
+                                                className="h-7 w-7 text-red-600 hover:text-red-700"
                                                 onClick={() => setDeleting(a)}
                                                 data-testid={`delete-avocat-${a.code}`}
                                             >
@@ -267,9 +269,9 @@ export default function AvocatsList() {
             </div>
 
             {/* Pagination */}
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center justify-between text-sm shrink-0">
                 <div className="text-slate-500">
-                    Page {page} sur {totalPages}
+                    Page {fmt(page)} sur {fmt(totalPages)}
                 </div>
                 <div className="flex gap-2">
                     <Button

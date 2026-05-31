@@ -115,3 +115,12 @@ kbd {
         display: contents !important;
     }
 }
+
+/* Masquer le badge "Made with Emergent" — application interne pro.
+   Garde le sélecteur défensif au cas où le badge serait réinjecté par script. */
+#emergent-badge,
+a[href*="emergent.sh"] {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}

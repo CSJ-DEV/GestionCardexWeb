@@ -40,7 +40,7 @@ export default function Layout() {
     };
 
     return (
-        <div className="min-h-screen flex bg-slate-50">
+        <div className="h-screen flex bg-slate-50 overflow-hidden">
             {/* Sidebar */}
             <aside className="w-64 border-r border-slate-200 bg-white flex flex-col" data-testid="sidebar">
                 <div className="px-6 py-6 border-b border-slate-200">

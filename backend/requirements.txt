@@ -32,6 +32,8 @@ ecdsa==0.19.2
 pyasn1==0.6.3
 pyasn1_modules==0.4.2
 rsa==4.9.1
+msal==1.37.0
+itsdangerous==2.2.0
 
 # --- Utilitaires runtime ---
 python-dotenv==1.0.1

@@ -346,3 +346,30 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - **P2** Exploitation des BDD secondaires `StaticPc` (référentiels) et `Art52` (paiements)
 - **P3** Custom Domain + restriction IP sur Azure App Service
 - **P3** Backfill optionnel des `created_at`/`updated_at` NULL existants dans `Avocats` (script SQL ad-hoc)
+
+## Phase 17 — Microsoft Entra ID (Azure AD) SSO (2026-02 fork, suite)
+**Implémenté** :
+- **Backend** — Nouveau router `/app/backend/routers/auth_entra.py` :
+  - `GET /api/auth/entra/login` → MSAL `initiate_auth_code_flow` (PKCE + state + nonce automatiques) → redirige vers Microsoft. Le dict de flow MSAL est sérialisé dans un cookie HttpOnly signé via `itsdangerous` (`entra_auth_flow`, durée 5 min, path `/api/auth/entra`).
+  - `GET /api/auth/entra/callback` → MSAL `acquire_token_by_auth_code_flow` (valide state+nonce automatiquement), extrait les claims ID token (`email`, `name`, `oid`, `tid`, `roles`), vérifie le tenant, mappe les App Roles sur les rôles locaux via `_select_local_role` (priorité ti > admin > editeur > lecteur), upsert l'`AppUser` par email, émet les cookies JWT applicatifs via `set_auth_cookies` existant, redirige vers `FRONTEND_URL`.
+  - `GET /api/auth/entra/status` → retourne `{enabled, tenant_id}` pour que le frontend décide d'afficher/masquer le bouton MS.
+- **Mapping App Roles → rôles locaux** : valeurs exactes `admin`, `editeur`, `lecteur`, `ti` doivent être définies dans l'App Registration Azure Portal (l'utilisateur s'est déjà assigné le rôle `admin`). Si aucun rôle assigné → connexion refusée avec message clair (`no_role`).
+- **Sécurité** : `ENTRA_CLIENT_SECRET` chargé exclusivement via `os.environ`, JAMAIS hardcodé. Le secret partagé en chat est considéré compromis → l'utilisateur devra le rotater dans Azure Portal et le déposer uniquement dans les Application Settings d'Azure App Service.
+- **Frontend** — `pages/Login.jsx` repensé : appel à `/api/auth/entra/status` au mount ; si activé, affiche un bouton « Se connecter avec Microsoft » (logo officiel 4 carrés) au-dessus du formulaire JWT, séparateur visuel « OU ». Gère le paramètre `?entra_error=...&msg=...` pour afficher les erreurs OAuth (session expirée, no_role, invalid_tenant, etc.).
+- **Coexistence** : l'authentification email/password JWT existante n'est pas modifiée. Les utilisateurs Entra reçoivent les **mêmes cookies JWT** applicatifs → tout le reste de l'app fonctionne sans changement.
+- **Dépendances** : ajout de `msal==1.37.0` et `itsdangerous==2.2.0` dans `backend/requirements.txt` et `requirements.txt` racine.
+- **Variables d'env requises (Azure App Service)** : `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET`, `ENTRA_REDIRECT_URI`, optionnellement `ENTRA_POST_LOGIN_REDIRECT` (sinon utilise `FRONTEND_URL`).
+
+**Vérifications** :
+- `GET /api/auth/entra/status` retourne `{enabled:false}` en dev (sans secret) → bouton masqué.
+- Avec secret factice : `status` retourne `enabled:true` → bouton MS affiché correctement (capture validée).
+- MSAL `initiate_auth_code_flow` produit bien `auth_uri` vers `login.microsoftonline.com` avec PKCE + state + nonce.
+- Sérialisation/désérialisation du cookie signé `itsdangerous` validée (round-trip OK).
+- Lint Python + JS = 0 erreur.
+
+**Action utilisateur requise** :
+1. ⚠️ Rotater `ENTRA_CLIENT_SECRET` dans Azure Portal → App Registrations → Certificates & secrets (l'ancien partagé en chat est compromis).
+2. Déposer les 4 variables `ENTRA_*` dans Azure App Service → Configuration → Application Settings.
+3. Vérifier dans l'App Registration → Token configuration que le claim `roles` est bien inclus dans les ID tokens (par défaut oui pour les App Roles).
+4. Tester en cliquant le bouton « Se connecter avec Microsoft » sur la prod.
+

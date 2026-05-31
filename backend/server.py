@@ -22,6 +22,7 @@ from security import hash_password, now_local, verify_password
 
 # Routers
 from routers.auth import router as auth_router
+from routers.auth_entra import router as auth_entra_router
 from routers.avocats import router as avocats_router
 from routers.adresses import router as adresses_router
 from routers.mega_inhab import router as mega_inhab_router, audit_router
@@ -45,7 +46,7 @@ def root():
 
 
 # Inclusion de tous les routers métier
-for r in (auth_router, avocats_router, adresses_router, mega_inhab_router, audit_router,
+for r in (auth_router, auth_entra_router, avocats_router, adresses_router, mega_inhab_router, audit_router,
           mandats_router, rapports_router, users_router, connexions_router, system_router):
     api_router.include_router(r)
 

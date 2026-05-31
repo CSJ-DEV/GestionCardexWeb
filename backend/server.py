@@ -78,8 +78,10 @@ def on_startup():
         is_dev = DATABASE_URL.startswith("sqlite")
 
         # ----- Migration idempotente : colonne AppUsers.auth_provider -----
-        # Ajoutée pour distinguer comptes locaux (email/mdp) vs Microsoft Entra ID.
-        # Idempotent sur SQLite (PRAGMA) et SQL Server (sys.columns).
+        # En dev (SQLite) on tente l'ALTER automatiquement.
+        # En prod (SQL Server), on NE tente PAS l'ALTER car le compte applicatif
+        # n'a typiquement pas les droits DDL. On vérifie juste que la colonne
+        # existe et, si elle manque, on log une instruction claire pour le DBA.
         from sqlalchemy import text
         try:
             if is_dev:
@@ -90,17 +92,17 @@ def on_startup():
                     logger.info("Migration: ajout AppUsers.auth_provider (SQLite)")
             else:
                 exists = db.execute(text(
-                    "SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('AppUsers') AND name='auth_provider'"
+                    "SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('dbo.AppUsers') AND name='auth_provider'"
                 )).scalar()
                 if not exists:
-                    db.execute(text(
-                        "ALTER TABLE AppUsers ADD auth_provider NVARCHAR(20) NOT NULL CONSTRAINT DF_AppUsers_auth_provider DEFAULT 'local'"
-                    ))
-                    db.commit()
-                    logger.info("Migration: ajout AppUsers.auth_provider (SQL Server)")
+                    logger.error(
+                        "❌ Colonne AppUsers.auth_provider manquante en prod. "
+                        "Le DBA doit exécuter /app/memory/ALTER_APPUSERS_AUTH_PROVIDER_PROD.sql "
+                        "dans SSMS sur la base CardAvo, puis redémarrer l'App Service."
+                    )
         except Exception as e:
             db.rollback()
-            logger.warning("Migration AppUsers.auth_provider échouée (peut-être déjà appliquée) : %s", e)
+            logger.warning("Vérification AppUsers.auth_provider échouée : %s", e)
 
         # ----- Seed des comptes utilisateurs -----
         # En production (SQL Server), les comptes sont insérés par le DBA via

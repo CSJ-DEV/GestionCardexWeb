@@ -77,6 +77,31 @@ def on_startup():
     try:
         is_dev = DATABASE_URL.startswith("sqlite")
 
+        # ----- Migration idempotente : colonne AppUsers.auth_provider -----
+        # Ajoutée pour distinguer comptes locaux (email/mdp) vs Microsoft Entra ID.
+        # Idempotent sur SQLite (PRAGMA) et SQL Server (sys.columns).
+        from sqlalchemy import text
+        try:
+            if is_dev:
+                cols = [r[1] for r in db.execute(text("PRAGMA table_info('AppUsers')")).fetchall()]
+                if "auth_provider" not in cols:
+                    db.execute(text("ALTER TABLE AppUsers ADD COLUMN auth_provider VARCHAR(20) NOT NULL DEFAULT 'local'"))
+                    db.commit()
+                    logger.info("Migration: ajout AppUsers.auth_provider (SQLite)")
+            else:
+                exists = db.execute(text(
+                    "SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('AppUsers') AND name='auth_provider'"
+                )).scalar()
+                if not exists:
+                    db.execute(text(
+                        "ALTER TABLE AppUsers ADD auth_provider NVARCHAR(20) NOT NULL CONSTRAINT DF_AppUsers_auth_provider DEFAULT 'local'"
+                    ))
+                    db.commit()
+                    logger.info("Migration: ajout AppUsers.auth_provider (SQL Server)")
+        except Exception as e:
+            db.rollback()
+            logger.warning("Migration AppUsers.auth_provider échouée (peut-être déjà appliquée) : %s", e)
+
         # ----- Seed des comptes utilisateurs -----
         # En production (SQL Server), les comptes sont insérés par le DBA via
         # /app/memory/INIT_CARDAVO_PROD.sql. Le backend NE seed PAS automatiquement

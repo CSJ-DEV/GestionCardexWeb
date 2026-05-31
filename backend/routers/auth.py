@@ -23,8 +23,14 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
     u = db.query(AppUser).filter_by(email=email).first()
     if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Identifiants invalides")
+    if (u.auth_provider or "local") == "entra":
+        raise HTTPException(
+            status_code=401,
+            detail="Ce compte est géré par Microsoft. Utilisez « Se connecter avec Microsoft ».",
+        )
     set_auth_cookies(response, create_access_token(u.id, u.email), create_refresh_token(u.id))
-    return UserOut(id=u.id, email=u.email, name=u.name or "", role=u.role or "admin")
+    return UserOut(id=u.id, email=u.email, name=u.name or "", role=u.role or "admin",
+                   auth_provider=u.auth_provider or "local")
 
 
 @router.post("/logout")
@@ -51,13 +57,15 @@ def refresh_token_endpoint(request: Request, response: Response, db: Session = D
     if not u:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
     set_auth_cookies(response, create_access_token(u.id, u.email), create_refresh_token(u.id))
-    return UserOut(id=u.id, email=u.email, name=u.name or "", role=u.role or "admin")
+    return UserOut(id=u.id, email=u.email, name=u.name or "", role=u.role or "admin",
+                   auth_provider=u.auth_provider or "local")
 
 
 @router.get("/me", response_model=UserOut)
 def me(user: dict = Depends(get_current_user)):
     return UserOut(id=user["id"], email=user["email"],
-                   name=user.get("name") or "", role=user.get("role") or "admin")
+                   name=user.get("name") or "", role=user.get("role") or "admin",
+                   auth_provider=user.get("auth_provider") or "local")
 
 
 @router.put("/change-password")
@@ -68,6 +76,11 @@ def change_password(payload: ChangePasswordIn,
     u = db.query(AppUser).filter_by(id=user["id"]).first()
     if not u:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+    if (u.auth_provider or "local") == "entra":
+        raise HTTPException(
+            status_code=400,
+            detail="Compte géré par Microsoft : le mot de passe se change dans votre compte Microsoft.",
+        )
     if not verify_password(payload.current_password, u.password_hash):
         raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
     if payload.current_password == payload.new_password:

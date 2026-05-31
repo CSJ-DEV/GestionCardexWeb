@@ -136,6 +136,9 @@ class AppUser(Base):
     name = Column(String(200))
     role = Column(String(20), nullable=False)
     created_at = Column(DateTime, nullable=False)
+    # `local` (email/mdp) ou `entra` (Microsoft SSO). Permet de masquer le
+    # formulaire de changement de mdp pour les comptes SSO.
+    auth_provider = Column(String(20), nullable=False, default="local", server_default="local")
 
 
 class AuditLog(Base):

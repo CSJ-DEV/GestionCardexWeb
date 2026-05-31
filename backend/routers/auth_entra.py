@@ -189,6 +189,7 @@ def entra_callback(request: Request, db: Session = Depends(get_db)):
             name=name or email.split("@")[0],
             role=local_role,
             created_at=now_local(),
+            auth_provider="entra",
         )
         db.add(user)
         logger.info("Entra ID — Création AppUser : %s (role=%s)", email, local_role)
@@ -199,6 +200,10 @@ def entra_callback(request: Request, db: Session = Depends(get_db)):
         if user.role != local_role:
             logger.info("Entra ID — MAJ rôle %s : %s → %s", email, user.role, local_role)
             user.role = local_role
+        # Si un compte local existait déjà sous le même email, on le convertit
+        # en compte Entra (la connexion email/mdp est désormais inopérante).
+        if user.auth_provider != "entra":
+            user.auth_provider = "entra"
     db.commit()
     db.refresh(user)
 

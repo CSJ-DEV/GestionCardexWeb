@@ -97,7 +97,8 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> dict:
         u = db.query(AppUser).filter_by(id=payload["sub"]).first()
         if not u:
             raise HTTPException(status_code=401, detail="Utilisateur introuvable")
-        return {"id": u.id, "email": u.email, "name": u.name, "role": u.role}
+        return {"id": u.id, "email": u.email, "name": u.name, "role": u.role,
+                "auth_provider": u.auth_provider or "local"}
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Jeton expiré")
     except jwt.InvalidTokenError:

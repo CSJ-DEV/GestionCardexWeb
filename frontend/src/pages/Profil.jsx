@@ -19,6 +19,7 @@ const roleBadge = {
 
 export default function Profil() {
     const { user } = useAuth();
+    const isSSO = (user?.auth_provider || "local") === "entra";
     const [current, setCurrent] = useState("");
     const [next, setNext] = useState("");
     const [confirm, setConfirm] = useState("");
@@ -72,7 +73,7 @@ export default function Profil() {
                         Informations
                     </CardTitle>
                 </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
+                <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-6 text-sm">
                     <div>
                         <div className="overline mb-1.5" style={{ fontSize: 10 }}>Nom</div>
                         <div className="font-medium text-slate-900" data-testid="profil-name">{user?.name || "—"}</div>
@@ -87,9 +88,46 @@ export default function Profil() {
                             {roleLabel[user?.role] || user?.role || "—"}
                         </Badge>
                     </div>
+                    <div>
+                        <div className="overline mb-1.5" style={{ fontSize: 10 }}>Méthode d'authentification</div>
+                        <Badge
+                            className={`rounded-md ${isSSO ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-700"}`}
+                            data-testid="profil-auth-provider"
+                        >
+                            {isSSO ? "Microsoft Entra ID" : "Compte local"}
+                        </Badge>
+                    </div>
                 </CardContent>
             </Card>
 
+            {isSSO ? (
+                <Card className="rounded-md border-slate-200" data-testid="profil-sso-info">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 text-lg font-display">
+                            <KeyRound size={20} className="text-slate-600" />
+                            Sécurité du compte
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="rounded-md bg-sky-50 border border-sky-200 px-4 py-3 text-sm text-slate-700">
+                            Votre compte est géré par <strong>Microsoft Entra ID</strong>. Le mot de passe,
+                            l'authentification multifacteur et les paramètres de sécurité se gèrent directement
+                            dans votre compte Microsoft, pas ici.
+                            <div className="mt-3">
+                                <a
+                                    href="https://myaccount.microsoft.com/security-info"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[#0033A0] hover:underline font-medium"
+                                    data-testid="profil-ms-security-link"
+                                >
+                                    Gérer mes informations de sécurité Microsoft →
+                                </a>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            ) : (
             <Card className="rounded-md border-slate-200">
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-lg font-display">
@@ -186,6 +224,7 @@ export default function Profil() {
                     </form>
                 </CardContent>
             </Card>
+            )}
         </div>
     );
 }

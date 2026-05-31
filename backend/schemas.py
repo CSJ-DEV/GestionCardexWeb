@@ -36,6 +36,7 @@ class UserOut(BaseModel):
     email: EmailStr
     name: str
     role: str = "admin"
+    auth_provider: str = "local"
 
     @model_validator(mode="before")
     @classmethod

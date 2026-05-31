@@ -10,6 +10,7 @@ from schemas import LoginIn, UserOut, ChangePasswordIn
 from security import (
     create_access_token, create_refresh_token, get_current_user, get_jwt_secret,
     hash_password, set_auth_cookies, verify_password, JWT_ALGORITHM,
+    is_sso_user, auth_provider_of,
 )
 
 import jwt
@@ -21,16 +22,18 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
     email = payload.email.lower()
     u = db.query(AppUser).filter_by(email=email).first()
-    if not u or not verify_password(payload.password, u.password_hash):
+    if not u or is_sso_user(u) or not verify_password(payload.password, u.password_hash):
+        # On groupe les deux refus pour ne pas révéler l'existence des comptes SSO.
+        # Cas SSO : verify_password renverrait False de toute façon (hash invalide).
+        if u is not None and is_sso_user(u):
+            raise HTTPException(
+                status_code=401,
+                detail="Ce compte est géré par Microsoft. Utilisez « Se connecter avec Microsoft ».",
+            )
         raise HTTPException(status_code=401, detail="Identifiants invalides")
-    if (u.auth_provider or "local") == "entra":
-        raise HTTPException(
-            status_code=401,
-            detail="Ce compte est géré par Microsoft. Utilisez « Se connecter avec Microsoft ».",
-        )
     set_auth_cookies(response, create_access_token(u.id, u.email), create_refresh_token(u.id))
     return UserOut(id=u.id, email=u.email, name=u.name or "", role=u.role or "admin",
-                   auth_provider=u.auth_provider or "local")
+                   auth_provider=auth_provider_of(u))
 
 
 @router.post("/logout")
@@ -58,7 +61,7 @@ def refresh_token_endpoint(request: Request, response: Response, db: Session = D
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
     set_auth_cookies(response, create_access_token(u.id, u.email), create_refresh_token(u.id))
     return UserOut(id=u.id, email=u.email, name=u.name or "", role=u.role or "admin",
-                   auth_provider=u.auth_provider or "local")
+                   auth_provider=auth_provider_of(u))
 
 
 @router.get("/me", response_model=UserOut)
@@ -76,7 +79,7 @@ def change_password(payload: ChangePasswordIn,
     u = db.query(AppUser).filter_by(id=user["id"]).first()
     if not u:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
-    if (u.auth_provider or "local") == "entra":
+    if is_sso_user(u):
         raise HTTPException(
             status_code=400,
             detail="Compte géré par Microsoft : le mot de passe se change dans votre compte Microsoft.",

@@ -16,7 +16,6 @@ from __future__ import annotations
 import os
 import uuid
 import logging
-import secrets
 
 import msal
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -27,7 +26,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import AppUser
 from security import (
-    create_access_token, create_refresh_token, hash_password,
+    create_access_token, create_refresh_token, ENTRA_SSO_HASH,
     now_local, set_auth_cookies,
 )
 
@@ -183,13 +182,12 @@ def entra_callback(request: Request, db: Session = Depends(get_db)):
         user = AppUser(
             id=str(uuid.uuid4()),
             email=email,
-            # Placeholder bcrypt : l'utilisateur Entra ne peut pas se logger en email/mdp.
-            # Un mdp aléatoire 64 chars hashé bcrypt → effectivement non-utilisable.
-            password_hash=hash_password(secrets.token_urlsafe(48)),
+            # Sentinel SSO : pas un bcrypt valide → login email/mdp impossible.
+            # Détectable via `is_sso_user()` dans security.py.
+            password_hash=ENTRA_SSO_HASH,
             name=name or email.split("@")[0],
             role=local_role,
             created_at=now_local(),
-            auth_provider="entra",
         )
         db.add(user)
         logger.info("Entra ID — Création AppUser : %s (role=%s)", email, local_role)
@@ -200,10 +198,11 @@ def entra_callback(request: Request, db: Session = Depends(get_db)):
         if user.role != local_role:
             logger.info("Entra ID — MAJ rôle %s : %s → %s", email, user.role, local_role)
             user.role = local_role
-        # Si un compte local existait déjà sous le même email, on le convertit
-        # en compte Entra (la connexion email/mdp est désormais inopérante).
-        if user.auth_provider != "entra":
-            user.auth_provider = "entra"
+        # Si un compte local existait déjà sous le même email, on le bascule
+        # en compte SSO : le mdp local devient inutilisable pour cet utilisateur.
+        if user.password_hash != ENTRA_SSO_HASH:
+            logger.info("Entra ID — Conversion compte local → SSO pour %s", email)
+            user.password_hash = ENTRA_SSO_HASH
     db.commit()
     db.refresh(user)
 

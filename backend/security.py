@@ -16,6 +16,23 @@ from models import AppUser
 JWT_ALGORITHM = "HS256"
 ADMIN_LIKE = {"admin", "ti"}
 
+# Sentinel marqueur pour les comptes Microsoft Entra ID : on stocke cette
+# chaîne fixe dans AppUser.password_hash (au lieu d'un vrai bcrypt aléatoire)
+# pour identifier les comptes SSO sans nouvelle colonne en BDD. C'est par
+# conception un hash bcrypt invalide → `verify_password` renverra toujours
+# False → login email/mdp impossible pour les comptes SSO.
+ENTRA_SSO_HASH = "__ENTRA_SSO__"
+
+
+def is_sso_user(u) -> bool:
+    """True si l'utilisateur est authentifié via Microsoft Entra ID."""
+    return getattr(u, "password_hash", None) == ENTRA_SSO_HASH
+
+
+def auth_provider_of(u) -> str:
+    """Retourne 'entra' ou 'local' pour un AppUser."""
+    return "entra" if is_sso_user(u) else "local"
+
 # Timezone métier (Québec) — pour reproduire le comportement `Now()` du legacy VB.
 # Override possible via la variable d'env APP_TIMEZONE (utile pour tests).
 APP_TZ = ZoneInfo(os.environ.get("APP_TIMEZONE", "America/Toronto"))
@@ -98,7 +115,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> dict:
         if not u:
             raise HTTPException(status_code=401, detail="Utilisateur introuvable")
         return {"id": u.id, "email": u.email, "name": u.name, "role": u.role,
-                "auth_provider": u.auth_provider or "local"}
+                "auth_provider": auth_provider_of(u)}
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Jeton expiré")
     except jwt.InvalidTokenError:

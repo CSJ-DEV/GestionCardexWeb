@@ -77,33 +77,6 @@ def on_startup():
     try:
         is_dev = DATABASE_URL.startswith("sqlite")
 
-        # ----- Migration idempotente : colonne AppUsers.auth_provider -----
-        # En dev (SQLite) on tente l'ALTER automatiquement.
-        # En prod (SQL Server), on NE tente PAS l'ALTER car le compte applicatif
-        # n'a typiquement pas les droits DDL. On vérifie juste que la colonne
-        # existe et, si elle manque, on log une instruction claire pour le DBA.
-        from sqlalchemy import text
-        try:
-            if is_dev:
-                cols = [r[1] for r in db.execute(text("PRAGMA table_info('AppUsers')")).fetchall()]
-                if "auth_provider" not in cols:
-                    db.execute(text("ALTER TABLE AppUsers ADD COLUMN auth_provider VARCHAR(20) NOT NULL DEFAULT 'local'"))
-                    db.commit()
-                    logger.info("Migration: ajout AppUsers.auth_provider (SQLite)")
-            else:
-                exists = db.execute(text(
-                    "SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('dbo.AppUsers') AND name='auth_provider'"
-                )).scalar()
-                if not exists:
-                    logger.error(
-                        "❌ Colonne AppUsers.auth_provider manquante en prod. "
-                        "Le DBA doit exécuter /app/memory/ALTER_APPUSERS_AUTH_PROVIDER_PROD.sql "
-                        "dans SSMS sur la base CardAvo, puis redémarrer l'App Service."
-                    )
-        except Exception as e:
-            db.rollback()
-            logger.warning("Vérification AppUsers.auth_provider échouée : %s", e)
-
         # ----- Seed des comptes utilisateurs -----
         # En production (SQL Server), les comptes sont insérés par le DBA via
         # /app/memory/INIT_CARDAVO_PROD.sql. Le backend NE seed PAS automatiquement

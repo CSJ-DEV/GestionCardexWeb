@@ -110,7 +110,24 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
             if (isTI) { setPwd1(data.motpasse1); setPwd2(data.motpasse2); }
             onSaved?.();
         } catch (err) {
-            toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
+            // Log détaillé pour le débuggage (visible en console F12)
+            console.error("reset-passwords erreur:", {
+                status: err.response?.status,
+                data: err.response?.data,
+                message: err.message,
+                url: err.config?.url,
+            });
+            const status = err.response?.status;
+            const detail = err.response?.data?.detail;
+            let msg;
+            if (detail) {
+                msg = formatApiError(detail);
+            } else if (status) {
+                msg = `Erreur HTTP ${status}${err.response?.statusText ? ` — ${err.response.statusText}` : ""}`;
+            } else {
+                msg = `Erreur réseau : ${err.message || "Connexion impossible"}`;
+            }
+            toast.error(msg);
         } finally {
             setBusy(false);
         }

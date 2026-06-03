@@ -3,15 +3,17 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel, EmailStr
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from audit import write_audit, mega_to_dict, inhab_to_dict
 from database import get_db
-from models import Avocat, InfoMega, InfoDistrict, Inhpra, bool_to_yn
+from models import Avocat, Adresse, InfoMega, InfoDistrict, Inhpra, bool_to_yn
 from schemas import InfoMegaIn, InhabIn
 from security import get_current_user, now_local, require_role
+import mailer
 
 
 def _parse_date(value):
@@ -214,14 +216,37 @@ def _generate_unique_motpasse(db: Session, column) -> str:
     raise HTTPException(status_code=500, detail="Impossible de générer un mot de passe unique")
 
 
+class ResetPasswordsIn(BaseModel):
+    """Payload optionnel pour le reset. Si `send_email=True`, envoie un courriel
+    à l'avocat avec un PDF des nouveaux identifiants en pièce jointe."""
+    send_email: bool = False
+    email: EmailStr | None = None  # Si None et send_email=True, on utilise adresse.adremail
+
+
+def _send_pwd_email_task(to_email: str, code: str, nom: str, prenom: str,
+                        mp1: str, mp2: str, db_url_hint: str = ""):
+    """Tâche background — best-effort, ne lève jamais."""
+    try:
+        mailer.send_password_reset_email(to_email, code, nom, prenom, mp1, mp2)
+    except Exception as e:
+        # Logger uniquement — le reset principal a déjà commit en BDD.
+        import logging
+        logging.getLogger("gestioncardex.mailer").error(
+            "Envoi du courriel de reset pour %s (avocat %s) échoué : %s",
+            to_email, code, e,
+        )
+
+
 @router.post("/{avocat_id}/reset-passwords")
 def reset_passwords(avocat_id: str,
+                    background_tasks: BackgroundTasks,
+                    payload: ResetPasswordsIn | None = None,
                     user: dict = Depends(require_role("admin", "editeur")),
                     db: Session = Depends(get_db)):
     """Régénère motpasse1 + motpasse2 (legacy `subCreerPwd` + `funcSavePwd`).
 
-    Retourne les 2 nouvelles valeurs en clair (one-shot — le client doit les
-    copier). Les valeurs sont aussi accessibles via GET /passwords (TI only).
+    Si `payload.send_email=True`, envoie un courriel à l'avocat (best-effort)
+    avec un PDF contenant les nouveaux identifiants.
     """
     avo = db.query(Avocat).filter_by(code=avocat_id).first()
     if not avo:
@@ -237,7 +262,45 @@ def reset_passwords(avocat_id: str,
     db.commit()
     write_audit(db, avocat_id, "pwd_reset", user.get("email", ""),
                 "Réinitialisation des mots de passe Web (motpasse1 + motpasse2)")
-    return {"motpasse1": mp1, "motpasse2": mp2}
+
+    # ----- Envoi courriel (best-effort, ne bloque pas la réponse) -----
+    email_sent_to = None
+    email_error = None
+    if payload and payload.send_email:
+        if not mailer.is_email_enabled():
+            email_error = "Service courriel non configuré sur le serveur."
+        else:
+            # Détermine l'adresse cible : payload > adresse courante de l'avocat
+            target = (payload.email or "").strip().lower() or None
+            if not target and avo.adrcour:
+                adr = db.query(Adresse).filter_by(noseq=avo.adrcour).first()
+                if adr and adr.adremail:
+                    target = adr.adremail.strip().lower()
+            if not target:
+                email_error = "Aucune adresse courriel disponible pour cet avocat."
+            else:
+                background_tasks.add_task(
+                    _send_pwd_email_task,
+                    to_email=target,
+                    code=avo.code, nom=avo.nom or "", prenom=avo.prenom or "",
+                    mp1=mp1, mp2=mp2,
+                )
+                email_sent_to = target
+                write_audit(db, avocat_id, "pwd_email", user.get("email", ""),
+                            f"Courriel de reset programmé vers {target}")
+
+    return {
+        "motpasse1": mp1,
+        "motpasse2": mp2,
+        "email_sent_to": email_sent_to,
+        "email_error": email_error,
+    }
+
+
+@router.get("/email-status")
+def email_status(_=Depends(get_current_user)):
+    """Indique si le service courriel ACS est configuré côté serveur."""
+    return {"enabled": mailer.is_email_enabled()}
 
 
 @router.post("/{avocat_id}/clear-passwords")

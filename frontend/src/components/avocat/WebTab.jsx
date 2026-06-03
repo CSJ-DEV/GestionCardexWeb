@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import api, { formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -6,8 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import {
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Eye, EyeOff, RefreshCw, Copy, Trash2 } from "lucide-react";
+import { Eye, EyeOff, RefreshCw, Copy, Trash2, Mail } from "lucide-react";
 import { Field } from "./constants";
 
 // --- Sous-composant : un champ mot de passe (motpasse1 ou motpasse2) ---
@@ -63,6 +66,26 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
     const [pwd2, setPwd2] = useState("");
     const [busy, setBusy] = useState(false);
 
+    // Dialog d'envoi par courriel
+    const [emailEnabled, setEmailEnabled] = useState(false);
+    const [resetDialogOpen, setResetDialogOpen] = useState(false);
+    const [sendByEmail, setSendByEmail] = useState(true);
+    const defaultEmail = (avocat?.adresse?.email || "").trim();
+    const [emailTarget, setEmailTarget] = useState(defaultEmail);
+
+    // Vérifie si le service ACS est configuré côté serveur
+    useEffect(() => {
+        api.get("/system/email-status")
+            .then((res) => setEmailEnabled(Boolean(res.data?.enabled)))
+            .catch(() => setEmailEnabled(false));
+    }, []);
+
+    const openResetDialog = () => {
+        setEmailTarget(defaultEmail);
+        setSendByEmail(emailEnabled && Boolean(defaultEmail));
+        setResetDialogOpen(true);
+    };
+
     const motpasse1Set = !!avocat?.motpasse1_set;
     const motpasse2Set = !!avocat?.motpasse2_set;
 
@@ -98,12 +121,21 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
     };
 
     const resetPasswords = async () => {
-        if (!confirm("Voulez-vous réinitialiser les mots de passe de l'avocat ?")) return;
+        setResetDialogOpen(false);
         try {
             setBusy(true);
-            const { data } = await api.post(`/avocats/${avocatId}/reset-passwords`);
-            toast.success(`Mots de passe générés — MdP 1 : ${data.motpasse1} · MdP 2 : ${data.motpasse2}`, {
-                duration: 15000,
+            const payload = sendByEmail && emailTarget
+                ? { send_email: true, email: emailTarget.trim() }
+                : {};
+            const { data } = await api.post(`/avocats/${avocatId}/reset-passwords`, payload);
+            let successMsg = `Mots de passe générés — MdP 1 : ${data.motpasse1} · MdP 2 : ${data.motpasse2}`;
+            if (data.email_sent_to) {
+                successMsg += `\n📧 Courriel envoyé à ${data.email_sent_to}`;
+            } else if (data.email_error) {
+                toast.warning(`Mots de passe générés mais courriel non envoyé : ${data.email_error}`);
+            }
+            toast.success(successMsg, {
+                duration: 20000,
                 action: { label: "Copier les deux", onClick: () => copyToClipboard(`${data.motpasse1} / ${data.motpasse2}`, "Mots de passe") },
             });
             // Si TI : pré-charge les valeurs pour révélation immédiate
@@ -234,7 +266,7 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
                     <div className="flex gap-2 pt-2">
                         <Button
                             type="button"
-                            onClick={resetPasswords}
+                            onClick={openResetDialog}
                             disabled={busy || !form.factweb}
                             className="rounded-md bg-[#0033A0] hover:bg-[#002277] text-white"
                             data-testid="web-reset-passwords"
@@ -263,6 +295,90 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
                     </p>
                 )}
             </div>
+
+            {/* Dialog de confirmation de réinitialisation + envoi courriel */}
+            <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+                <DialogContent className="sm:max-w-md" data-testid="reset-pwd-dialog">
+                    <DialogHeader>
+                        <DialogTitle>Réinitialiser les mots de passe</DialogTitle>
+                        <DialogDescription>
+                            Deux nouveaux mots de passe seront générés et remplaceront les
+                            mots de passe actuels. Cette action est irréversible.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {emailEnabled ? (
+                        <div className="space-y-4 py-2">
+                            <div className="flex items-start gap-3 rounded-md bg-slate-50 border border-slate-200 p-3">
+                                <Mail className="w-5 h-5 text-[#0033A0] mt-0.5 shrink-0" />
+                                <div className="flex-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <Label htmlFor="send-by-email" className="text-sm font-medium text-slate-900">
+                                            Envoyer par courriel à l'avocat
+                                        </Label>
+                                        <Switch
+                                            id="send-by-email"
+                                            checked={sendByEmail}
+                                            onCheckedChange={setSendByEmail}
+                                            data-testid="reset-pwd-send-email-toggle"
+                                        />
+                                    </div>
+                                    {sendByEmail && (
+                                        <div className="mt-3">
+                                            <Label htmlFor="email-target" className="text-xs text-slate-600">
+                                                Adresse de destination
+                                            </Label>
+                                            <Input
+                                                id="email-target"
+                                                type="email"
+                                                value={emailTarget}
+                                                onChange={(e) => setEmailTarget(e.target.value)}
+                                                placeholder="avocat@exemple.qc.ca"
+                                                className="mt-1 rounded-md"
+                                                data-testid="reset-pwd-email-input"
+                                            />
+                                            {!defaultEmail && (
+                                                <p className="text-xs text-amber-700 mt-1">
+                                                    ⚠ Aucune adresse courriel n'est enregistrée pour cet avocat — saisissez-la manuellement.
+                                                </p>
+                                            )}
+                                            <p className="text-xs text-slate-500 mt-2">
+                                                Un PDF avec les nouveaux mots de passe sera joint au courriel.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-xs text-slate-500 py-2">
+                            Le service courriel n'est pas configuré sur ce serveur. Les mots de passe
+                            seront affichés à l'écran après génération (à copier manuellement).
+                        </p>
+                    )}
+
+                    <DialogFooter className="gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setResetDialogOpen(false)}
+                            className="rounded-md"
+                            data-testid="reset-pwd-cancel"
+                        >
+                            Annuler
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={resetPasswords}
+                            disabled={busy || (sendByEmail && emailEnabled && !emailTarget.trim())}
+                            className="rounded-md bg-[#0033A0] hover:bg-[#002277] text-white"
+                            data-testid="reset-pwd-confirm"
+                        >
+                            {sendByEmail && emailEnabled ? "Réinitialiser et envoyer" : "Réinitialiser"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

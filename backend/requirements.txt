@@ -34,6 +34,7 @@ pyasn1_modules==0.4.2
 rsa==4.9.1
 msal==1.37.0
 itsdangerous==2.2.0
+azure-communication-email==1.0.0
 
 # --- Utilitaires runtime ---
 python-dotenv==1.0.1

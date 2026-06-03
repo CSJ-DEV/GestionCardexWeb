@@ -16,9 +16,18 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from database import describe_databases, engine, get_secondary_engine
-from security import require_role
+from security import get_current_user, require_role
+import mailer
 
 router = APIRouter(prefix="/system", tags=["system"])
+
+
+@router.get("/email-status")
+def email_status(_=Depends(get_current_user)):
+    """Indique si le service courriel ACS est configuré côté serveur.
+    Accessible à tout utilisateur connecté (sert au frontend pour activer/masquer
+    les fonctions d'envoi)."""
+    return {"enabled": mailer.is_email_enabled()}
 
 # Date de dernière modification du backend = horodatage du fichier le plus récent
 # parmi server.py, models.py et les routers. Représente la version déployée.

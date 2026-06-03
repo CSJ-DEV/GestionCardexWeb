@@ -12,13 +12,16 @@ load_dotenv(ROOT_DIR / '.env')
 import os
 import uuid
 import logging
+import traceback
 
-from fastapi import FastAPI, APIRouter
+import jwt as _jwt
+from fastapi import FastAPI, APIRouter, Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from database import engine, get_db, Base, DATABASE_URL
 from models import AppUser, Avocat, Connexion, bool_to_yn
-from security import hash_password, now_local, verify_password
+from security import hash_password, now_local, verify_password, get_jwt_secret, JWT_ALGORITHM
 
 # Routers
 from routers.auth import router as auth_router
@@ -38,6 +41,53 @@ logger = logging.getLogger("gestioncardex")
 
 app = FastAPI(title="GestionCardex API", version="2.1.0")
 api_router = APIRouter(prefix="/api")
+
+
+def _is_ti_request(request: Request) -> bool:
+    """Détermine si la requête provient d'un utilisateur de rôle TI.
+    Lit le JWT puis consulte AppUsers.role. Best-effort : retourne False si
+    quoi que ce soit échoue (pour ne jamais provoquer une seconde erreur)."""
+    try:
+        token = request.cookies.get("access_token")
+        if not token:
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                token = auth[7:]
+        if not token:
+            return False
+        payload = _jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        db_session = next(get_db())
+        try:
+            u = db_session.query(AppUser).filter_by(id=payload.get("sub")).first()
+            return bool(u and u.role == "ti")
+        finally:
+            db_session.close()
+    except Exception:
+        return False
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Capture toutes les exceptions non gérées (typiquement erreurs SQL).
+    - Log la stack trace complète côté serveur (Azure Log Stream).
+    - Retourne un détail technique enrichi UNIQUEMENT pour les comptes TI.
+    """
+    tb_str = traceback.format_exc()
+    logger.error(
+        "Unhandled exception on %s %s: %s\n%s",
+        request.method, request.url.path, exc, tb_str,
+    )
+    content = {"detail": "Erreur interne du serveur. L'incident a été enregistré."}
+    if _is_ti_request(request):
+        content["debug"] = {
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc),
+            "path": request.url.path,
+            "method": request.method,
+            # Dernières lignes de la stack trace (les plus utiles pour diagnostiquer)
+            "traceback_tail": tb_str.splitlines()[-20:],
+        }
+    return JSONResponse(status_code=500, content=content)
 
 
 @api_router.get("/")

@@ -119,6 +119,7 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
             });
             const status = err.response?.status;
             const detail = err.response?.data?.detail;
+            const debug = err.response?.data?.debug;
             let msg;
             if (detail) {
                 msg = formatApiError(detail);
@@ -127,7 +128,14 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
             } else {
                 msg = `Erreur réseau : ${err.message || "Connexion impossible"}`;
             }
-            toast.error(msg);
+            // Pour les TI : afficher le détail technique de l'exception
+            if (isTI && debug) {
+                msg += `\n\n[TI] ${debug.exception_type}: ${debug.exception_message}`;
+                if (Array.isArray(debug.traceback_tail) && debug.traceback_tail.length > 0) {
+                    msg += `\n${debug.traceback_tail[debug.traceback_tail.length - 1]}`;
+                }
+            }
+            toast.error(msg, { duration: isTI ? 30000 : 6000 });
         } finally {
             setBusy(false);
         }

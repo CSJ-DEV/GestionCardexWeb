@@ -53,7 +53,9 @@ const PasswordRow = ({ label, isSet, value, visible, isTI, onToggle, onCopy }) =
 export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
     const { user } = useAuth();
     const isTI = user?.role === "ti";
-    const canReset = !readOnly && (user?.role === "admin" || user?.role === "editeur");
+    // TI est super-utilisateur technique (peut tout faire en plus de révéler les mdp).
+    // Cohérent avec require_role() côté backend qui ajoute auto 'ti' à 'admin'.
+    const canReset = !readOnly && (user?.role === "admin" || user?.role === "editeur" || isTI);
 
     const [reveal1, setReveal1] = useState(false);
     const [reveal2, setReveal2] = useState(false);

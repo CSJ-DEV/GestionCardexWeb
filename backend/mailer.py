@@ -23,9 +23,9 @@ from azure.core.exceptions import HttpResponseError
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_LEFT, TA_JUSTIFY
+from reportlab.lib.enums import TA_LEFT
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, KeepTogether,
+    SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, KeepTogether, Table, TableStyle,
 )
 from reportlab.lib.colors import HexColor
 from reportlab.pdfgen import canvas
@@ -220,13 +220,14 @@ def generate_letter_pdf(
     doc = SimpleDocTemplate(
         buffer, pagesize=letter,
         leftMargin=0.85 * inch, rightMargin=0.85 * inch,
-        topMargin=0.4 * inch, bottomMargin=0.4 * inch,
+        topMargin=0.45 * inch, bottomMargin=0.45 * inch,
     )
     styles = getSampleStyleSheet()
+    # Corps : aligné à gauche (comme l'original), Helvetica 10pt, interligne simple
     body_style = ParagraphStyle(
         "body", parent=styles["Normal"],
-        fontName="Helvetica", fontSize=10, leading=12.5, alignment=TA_JUSTIFY,
-        spaceAfter=4,
+        fontName="Helvetica", fontSize=10, leading=12.5, alignment=TA_LEFT,
+        spaceAfter=7,
     )
     body_left = ParagraphStyle(
         "body_left", parent=body_style, alignment=TA_LEFT, spaceAfter=2,
@@ -237,21 +238,31 @@ def generate_letter_pdf(
 
     story = []
 
-    # ---- En-tête : logo (gauche) + CONFIDENTIEL (droite) ----
+    # ---- En-tête : logo (gauche) + CONFIDENTIEL (droite) sur la même ligne ----
+    confidential_style = ParagraphStyle(
+        "conf", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=12, alignment=2, textColor=HexColor("#000000"),  # 2 = TA_RIGHT, noir
+    )
+    logo_cell = ""
     if os.path.exists(LOGO_PATH):
         try:
-            img = RLImage(LOGO_PATH, width=1.5 * inch, height=0.65 * inch, kind="proportional")
-            img.hAlign = "LEFT"
-            story.append(img)
+            logo_cell = RLImage(LOGO_PATH, width=1.5 * inch, height=0.7 * inch, kind="proportional")
         except Exception:
-            pass
+            logo_cell = ""
 
-    confidential = ParagraphStyle(
-        "conf", parent=styles["Normal"], fontName="Helvetica-Bold",
-        fontSize=10, alignment=2, textColor=HexColor("#666666"),  # 2 = TA_RIGHT
+    header_table = Table(
+        [[logo_cell, Paragraph("CONFIDENTIEL", confidential_style)]],
+        colWidths=[3.5 * inch, 3.3 * inch],
     )
-    story.append(Paragraph("CONFIDENTIEL", confidential))
-    story.append(Spacer(1, 0.1 * inch))
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 0.2 * inch))
 
     # ---- Date ----
     story.append(Paragraph(_format_date_fr(now_local()), body_left))

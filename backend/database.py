@@ -140,6 +140,7 @@ _secondary_engines: dict[str, object] = {}
 _SECONDARY_CONFIG = {
     "StaticPc": ("DATABASE_URL_STATICPC", "DB_STATICPC"),
     "Art52": ("DATABASE_URL_ART52", "DB_ART52"),
+    "Themis": ("DATABASE_URL_THEMIS", "DB_THEMIS"),
 }
 
 

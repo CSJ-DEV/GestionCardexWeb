@@ -70,7 +70,7 @@ def _ping_engine(eng: Any) -> dict:
 
 @router.get("/health")
 def system_health(user: dict = Depends(require_role("ti"))):
-    """Retourne l'état des 3 BDD (CardAvo, StaticPc, Art52).
+    """Retourne l'état des 4 BDD (CardAvo, StaticPc, Art52, Themis).
 
     Pour chacune : ok (bool), latency_ms (float), dialect (sqlite/mssql),
     url masquée (sans mot de passe), et message d'erreur le cas échéant.
@@ -87,8 +87,8 @@ def system_health(user: dict = Depends(require_role("ti"))):
         "primary": True,
     }
 
-    # StaticPc et Art52 via engines secondaires (lazy)
-    for name in ("StaticPc", "Art52"):
+    # StaticPc, Art52 et Themis via engines secondaires (lazy)
+    for name in ("StaticPc", "Art52", "Themis"):
         try:
             eng = get_secondary_engine(name)
             ping = _ping_engine(eng)

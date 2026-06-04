@@ -321,7 +321,15 @@ def _verif_atattdaj(themis_engine, row: MandatRow) -> bool:
 
 
 def _enrich_with_fvi_status(rows: List[MandatRow]) -> None:
-    """Renseigne `sur_web` pour chaque ligne via 1 seule requête vers Fvi."""
+    """Renseigne `sur_web` pour chaque ligne via 1 seule requête vers Fvi.
+
+    Tolérance aux formats legacy :
+      - cnoreg / cnobur peuvent être stockés en CHAR(2) avec padding espaces.
+      - cnoref peut être stocké avec tiret ("72500038-01") ou sans ("7250003801").
+      - Certaines bases Fvi utilisent juste la partie 8 chiffres (sans suffixe).
+    On normalise tout côté SQL via RTRIM(LTRIM(...)) + REPLACE(..., '-', '')
+    et on compare également avec les variantes sans tiret côté serveur.
+    """
     if not rows:
         return
     try:
@@ -329,29 +337,61 @@ def _enrich_with_fvi_status(rows: List[MandatRow]) -> None:
     except Exception as e:
         raise RuntimeError(f"Fvi non disponible : {e}")
 
-    # Construit une clause IN dynamique avec paramètres nommés
+    # Pour chaque ligne, on construit des paramètres avec plusieurs variantes
+    # de noref : noref tel quel, noref sans tiret, et juste les 8 premiers chiffres.
     conditions = []
-    params = {}
+    params: dict = {}
     for i, r in enumerate(rows):
+        noref = r.noref or ""
+        noref_no_dash = noref.replace("-", "")
+        # Si format "XXXXXXXX-XX", on garde aussi juste "XXXXXXXX"
+        noref_8 = noref.split("-", 1)[0] if "-" in noref else noref[:8]
+
         conditions.append(
-            f"(cnoreg = :nor{i} AND cnobur = :nob{i} AND cnoref = :ref{i})"
+            f"("
+            f"  RTRIM(LTRIM(cnoreg)) = :nor{i} "
+            f"  AND RTRIM(LTRIM(cnobur)) = :nob{i} "
+            f"  AND ("
+            f"     RTRIM(LTRIM(cnoref)) = :ref{i}_full "
+            f"     OR RTRIM(LTRIM(cnoref)) = :ref{i}_nodash "
+            f"     OR RTRIM(LTRIM(cnoref)) = :ref{i}_8 "
+            f"     OR RTRIM(LTRIM(cnoref)) LIKE :ref{i}_like "
+            f"  )"
+            f")"
         )
         params[f"nor{i}"] = r.noreg
         params[f"nob{i}"] = r.nobur
-        params[f"ref{i}"] = r.noref
+        params[f"ref{i}_full"] = noref
+        params[f"ref{i}_nodash"] = noref_no_dash
+        params[f"ref{i}_8"] = noref_8
+        params[f"ref{i}_like"] = f"{noref_8}%"
 
     sql = text(f"""
         SELECT cnoreg, cnobur, cnoref FROM Mandats
         WHERE {' OR '.join(conditions)}
     """)
 
-    found = set()
+    # Normalisation pour comparer côté Python également
+    def norm(s):
+        return (s or "").strip().replace("-", "")
+
+    found_norm: set[tuple[str, str, str]] = set()
     with fvi.connect() as conn:
         for fr in conn.execute(sql, params):
-            found.add((str(fr[0]).strip(), str(fr[1]).strip(), str(fr[2]).strip()))
+            found_norm.add((
+                str(fr[0]).strip(),
+                str(fr[1]).strip(),
+                norm(str(fr[2])),
+            ))
 
     for row in rows:
-        row.sur_web = (row.noreg, row.nobur, row.noref) in found
+        # Test le couple (noreg, nobur, noref normalisé sans tiret)
+        # avec plusieurs variantes possibles côté row
+        keys = {
+            (row.noreg, row.nobur, norm(row.noref)),
+            (row.noreg, row.nobur, norm(row.noref.split("-", 1)[0] if "-" in row.noref else row.noref[:8])),
+        }
+        row.sur_web = any(k in found_norm for k in keys)
 
 
 # ============================================================
@@ -417,9 +457,42 @@ def diagnostic(
     # Test Fvi
     try:
         fvi = get_secondary_engine("Fvi")
+        fvi_is_sqlserver = fvi.dialect.name in ("mssql", "pyodbc", "pymssql")
         with fvi.connect() as conn:
+            info: dict = {"exists": True}
             cnt = conn.execute(text("SELECT COUNT(*) FROM Mandats")).scalar()
-            out["fvi"]["Mandats"] = {"exists": True, "row_count": cnt}
+            info["row_count"] = cnt
+
+            # Colonnes réelles (SQL Server)
+            if fvi_is_sqlserver:
+                cols_q = text(
+                    "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH "
+                    "FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Mandats'"
+                )
+                info["columns"] = [
+                    {"name": r[0], "type": r[1], "len": r[2]}
+                    for r in conn.execute(cols_q)
+                ]
+            else:
+                info["columns"] = []
+
+            # Sample : 3 premiers rows avec colonnes cnoreg/cnobur/cnoref
+            try:
+                sample_sql = text(
+                    f"SELECT {'TOP 3' if fvi_is_sqlserver else ''} "
+                    "cnoreg, cnobur, cnoref FROM Mandats "
+                    f"{'' if fvi_is_sqlserver else 'LIMIT 3'}"
+                )
+                info["sample"] = [
+                    {"cnoreg": repr(r["cnoreg"]),
+                     "cnobur": repr(r["cnobur"]),
+                     "cnoref": repr(r["cnoref"])}
+                    for r in conn.execute(sample_sql).mappings()
+                ]
+            except Exception as e:  # noqa: BLE001
+                info["sample_error"] = str(e)
+
+            out["fvi"]["Mandats"] = info
     except Exception as e:  # noqa: BLE001
         out["fvi"]["Mandats"] = {"exists": False, "error": str(e)}
 

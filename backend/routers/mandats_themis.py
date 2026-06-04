@@ -122,9 +122,10 @@ def search_mandats(
             )
         noreg = m.group(1)
         nobur = m.group(2)
-        # noref dans Themis = "NNNNNNNN-NN" (avec tiret), donc on prend tout après le 2e tiret
-        # VB faisait Mid(txt, 7) qui inclut le tiret central
-        noref_filter = f"{m.group(3)}-{m.group(4)}"
+        # IMPORTANT : le VB utilise Mid(noref, 1, 8) pour la recherche dans atattest,
+        # c'est-à-dire UNIQUEMENT les 8 chiffres avant le dernier tiret (les 2 derniers
+        # chiffres "NN" sont une sous-référence absente de atattest.noref).
+        noref_filter = m.group(3)  # Les 8 chiffres "NNNNNNNN"
 
     # Construction WHERE paramétré pour chaque table (atattest et megaattest).
     # On utilise LIKE partout + RTRIM pour gérer le cas où les colonnes sont

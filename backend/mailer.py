@@ -16,11 +16,18 @@ import base64
 import logging
 from io import BytesIO
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 
 from azure.communication.email import EmailClient
 from azure.core.exceptions import HttpResponseError
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_JUSTIFY
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, KeepTogether,
+)
+from reportlab.lib.colors import HexColor
 from reportlab.pdfgen import canvas
 
 from security import now_local
@@ -146,6 +153,232 @@ def _wrap_text(text: str, max_chars: int) -> List[str]:
     if cur:
         lines.append(cur)
     return lines
+
+
+# ========================== Lettre officielle CSJ ==========================
+_MOIS_FR = ["", "janvier", "février", "mars", "avril", "mai", "juin",
+            "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "logo-ajq.jpg")
+GUIDE_URL = "https://www.csj.qc.ca/facturation-mandats-aj/aide.aspx?lang=fr"
+
+
+def _format_date_fr(dt: datetime) -> str:
+    """Retourne 'Le 14 juillet 2025' à partir d'un datetime."""
+    return f"Le {dt.day} {_MOIS_FR[dt.month]} {dt.year}"
+
+
+def _build_address_lines(adresse: Optional[Any]) -> List[str]:
+    """Construit les lignes d'adresse à partir d'un objet Adresse legacy.
+    Retourne 1-4 lignes selon ce qui est renseigné. L'objet peut être None."""
+    if adresse is None:
+        return []
+    lines: List[str] = []
+    # Ligne(s) 1-3 : adresse + adresse2 + adresse3 (multi-lignes legacy)
+    for attr in ("address", "adresse", "adresse2", "adresse3"):
+        val = getattr(adresse, attr, None)
+        if val and str(val).strip():
+            lines.append(str(val).strip())
+    # Ligne finale : ville, province codepostal
+    last_parts = []
+    ville = getattr(adresse, "ville", None)
+    prov = getattr(adresse, "province", None)
+    cp = getattr(adresse, "codepostal", None)
+    if ville and str(ville).strip():
+        if prov and str(prov).strip():
+            last_parts.append(f"{str(ville).strip()}, {str(prov).strip()}")
+        else:
+            last_parts.append(str(ville).strip())
+    if cp and str(cp).strip():
+        last_parts.append(str(cp).strip())
+    if last_parts:
+        lines.append("  ".join(last_parts))
+    return lines
+
+
+def generate_letter_pdf(
+    avocat_code: str,
+    avocat_nom: str,
+    avocat_prenom: str,
+    motpasse1: str,
+    motpasse2: str,
+    adresse: Optional[Any] = None,
+    config: Optional[Any] = None,
+) -> bytes:
+    """Génère la lettre officielle CSJ (Code d'utilisateur et mots de passe).
+
+    Reproduit fidèlement le modèle Visual Basic / Word historique :
+      - En-tête avec logo CSJ + mention CONFIDENTIEL
+      - Date du jour en français long
+      - Adresse destinataire
+      - Objet
+      - Corps de la lettre (texte officiel)
+      - Formule de politesse
+      - Signature (image si configurée) + nom/titre/affiliation
+    """
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter,
+        leftMargin=1 * inch, rightMargin=1 * inch,
+        topMargin=0.7 * inch, bottomMargin=0.8 * inch,
+    )
+    styles = getSampleStyleSheet()
+    body_style = ParagraphStyle(
+        "body", parent=styles["Normal"],
+        fontName="Helvetica", fontSize=11, leading=15, alignment=TA_JUSTIFY,
+        spaceAfter=10,
+    )
+    body_left = ParagraphStyle(
+        "body_left", parent=body_style, alignment=TA_LEFT, spaceAfter=4,
+    )
+    signature_style = ParagraphStyle(
+        "sig", parent=body_left, fontSize=11, leading=14, spaceAfter=0,
+    )
+
+    story = []
+
+    # ---- En-tête : logo (gauche) + CONFIDENTIEL (droite) ----
+    # On utilise un Paragraph simple avec mise en forme HTML pour le titre
+    if os.path.exists(LOGO_PATH):
+        try:
+            img = RLImage(LOGO_PATH, width=2.2 * inch, height=1.0 * inch, kind="proportional")
+            img.hAlign = "LEFT"
+            story.append(img)
+        except Exception:
+            pass
+
+    confidential = ParagraphStyle(
+        "conf", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=10, alignment=2, textColor=HexColor("#666666"),  # 2 = TA_RIGHT
+    )
+    story.append(Paragraph("CONFIDENTIEL", confidential))
+    story.append(Spacer(1, 0.3 * inch))
+
+    # ---- Date ----
+    story.append(Paragraph(_format_date_fr(now_local()), body_left))
+    story.append(Spacer(1, 0.25 * inch))
+
+    # ---- Destinataire ----
+    full_name = f"Me {avocat_prenom} {avocat_nom}".strip()
+    story.append(Paragraph(full_name, body_left))
+    for line in _build_address_lines(adresse):
+        story.append(Paragraph(line, body_left))
+    story.append(Spacer(1, 0.3 * inch))
+
+    # ---- Objet ----
+    story.append(Paragraph(
+        "<b>Objet : Code d'utilisateur et mots de passe</b>", body_left,
+    ))
+    story.append(Spacer(1, 0.25 * inch))
+
+    # ---- Salutation ----
+    story.append(Paragraph("Maître,", body_left))
+    story.append(Spacer(1, 0.1 * inch))
+
+    # ---- Corps ----
+    story.append(Paragraph(
+        "Votre demande d'inscription à la facturation des mandats d'aide "
+        "juridique en ligne de la Commission des services juridiques a été "
+        "acceptée.", body_style,
+    ))
+
+    # Bloc identifiants — chaque ligne en gras simple
+    creds_block = (
+        f"<b>Code d'utilisateur :</b> {avocat_code}<br/>"
+        f"<b>Mot de passe 1 :</b> {motpasse1 or '—'}<br/>"
+        f"<b>Mot de passe 2 :</b> {motpasse2 or '—'}"
+    )
+    story.append(Paragraph(creds_block, body_left))
+    story.append(Spacer(1, 0.15 * inch))
+
+    story.append(Paragraph(
+        "Le mot de passe 1 donne un accès limité vous permettant seulement de "
+        "traiter des données de facturation, aucun accès aux relevés et au "
+        "formulaire d'adhésion au dépôt direct;", body_style,
+    ))
+    story.append(Paragraph(
+        "Le mot de passe 2 vous donne un accès illimité vous permettant "
+        "d'accéder à votre relevé de compte, au relevé 27, au formulaire "
+        "d'adhésion au dépôt direct et à la facturation en ligne. Il est de "
+        "votre responsabilité de conserver la confidentialité de ce mot de "
+        "passe.", body_style,
+    ))
+    story.append(Paragraph(
+        "Lors de votre première connexion, vous devrez confirmer avoir lu la "
+        "Convention de l'utilisateur en cochant la case concernée et en "
+        "cliquant sur 'Confirmer'. Vous serez ensuite dirigé vers 'Votre "
+        "profil' afin d'y compléter les informations nécessaires à la "
+        "sécurité de votre compte (NAS, question secrète et autres). Prévoyez "
+        "quelques jours ouvrables pour la mise à jour de votre profil de "
+        "facturation dans la base de données.", body_style,
+    ))
+    story.append(Paragraph(
+        "Les paiements des relevés d'honoraires et de débours se font par "
+        "dépôt direct. Une fois 'Votre profil' mis à jour, vous pourrez "
+        "accéder au formulaire d'inscription au dépôt direct.", body_style,
+    ))
+    story.append(Paragraph(
+        "Pour obtenir davantage d'informations concernant le fonctionnement "
+        "de la facturation des mandats d'aide juridique, vous pouvez "
+        "rejoindre le soutien technique au 514 873-3562 p.245, consulter "
+        "l'Aide en ligne sur notre site Web ou cliquer sur le lien suivant :",
+        body_style,
+    ))
+
+    # Lien hypertexte vers le guide
+    link_style = ParagraphStyle(
+        "link", parent=body_left, textColor=HexColor("#0033A0"),
+    )
+    story.append(Paragraph(
+        f'<link href="{GUIDE_URL}"><u>Guide d\'utilisation</u></link>',
+        link_style,
+    ))
+    story.append(Spacer(1, 0.2 * inch))
+
+    # ---- Formule de politesse ----
+    story.append(Paragraph(
+        "Nous vous prions de recevoir, Maître, l'expression de nos sentiments "
+        "distingués.", body_style,
+    ))
+    story.append(Spacer(1, 0.25 * inch))
+
+    # ---- Signature (image si présente) ----
+    sig_nom = getattr(config, "signataire_nom", "") or "M. Yves Boisvert, CPA, CGA"
+    sig_titre = getattr(config, "signataire_titre", "") or "Directeur des services financiers"
+    sig_aff = getattr(config, "signataire_affiliation", "") or "Commission des services juridiques"
+
+    sig_b64 = getattr(config, "signature_image_base64", None)
+    if sig_b64:
+        try:
+            sig_bytes = base64.b64decode(sig_b64)
+            sig_img = RLImage(BytesIO(sig_bytes), width=2.0 * inch, height=0.7 * inch,
+                              kind="proportional")
+            sig_img.hAlign = "LEFT"
+            story.append(KeepTogether([
+                sig_img,
+                Paragraph(sig_nom, signature_style),
+                Paragraph(sig_titre, signature_style),
+                Paragraph(sig_aff, signature_style),
+            ]))
+        except Exception as e:
+            logger.warning("Impossible d'inclure la signature image : %s", e)
+            story.append(KeepTogether([
+                Spacer(1, 0.7 * inch),
+                Paragraph(sig_nom, signature_style),
+                Paragraph(sig_titre, signature_style),
+                Paragraph(sig_aff, signature_style),
+            ]))
+    else:
+        story.append(KeepTogether([
+            Spacer(1, 0.7 * inch),
+            Paragraph(sig_nom, signature_style),
+            Paragraph(sig_titre, signature_style),
+            Paragraph(sig_aff, signature_style),
+        ]))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.read()
 
 
 # ========================== ACS Attachment helper ==========================

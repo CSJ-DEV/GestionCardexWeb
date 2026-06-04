@@ -10,7 +10,7 @@ import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Eye, EyeOff, RefreshCw, Copy, Trash2, Mail } from "lucide-react";
+import { Eye, EyeOff, RefreshCw, Copy, Trash2, Mail, FileText } from "lucide-react";
 import { Field } from "./constants";
 
 // --- Sous-composant : un champ mot de passe (motpasse1 ou motpasse2) ---
@@ -84,6 +84,27 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
         setEmailTarget(defaultEmail);
         setSendByEmail(emailEnabled && Boolean(defaultEmail));
         setResetDialogOpen(true);
+    };
+
+    // ---- Aperçu de la lettre officielle (PDF dans un nouvel onglet) ----
+    const previewLetter = async () => {
+        try {
+            // On utilise axios pour traverser le proxy avec les cookies, puis
+            // on ouvre le PDF dans un nouvel onglet via un Blob URL.
+            const response = await api.get(`/avocats/${avocatId}/letter-preview`, {
+                responseType: "blob",
+            });
+            const url = URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
+            window.open(url, "_blank", "noopener,noreferrer");
+            // Libère le blob après 60s
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (err) {
+            console.error("letter-preview erreur:", err);
+            const status = err.response?.status;
+            toast.error(status
+                ? `Erreur HTTP ${status} lors de la génération de la lettre`
+                : `Erreur réseau : ${err.message}`);
+        }
     };
 
     const motpasse1Set = !!avocat?.motpasse1_set;
@@ -263,7 +284,7 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
                 </div>
 
                 {canReset && (
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex gap-2 pt-2 flex-wrap">
                         <Button
                             type="button"
                             onClick={openResetDialog}
@@ -275,17 +296,31 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
                             {motpasse1Set || motpasse2Set ? "Réinitialiser les mots de passe" : "Générer les mots de passe"}
                         </Button>
                         {(motpasse1Set || motpasse2Set) && (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={clearPasswords}
-                                disabled={busy}
-                                className="rounded-md"
-                                data-testid="web-clear-passwords"
-                            >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Effacer
-                            </Button>
+                            <>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={previewLetter}
+                                    disabled={busy}
+                                    className="rounded-md"
+                                    data-testid="web-preview-letter"
+                                    title="Ouvre la lettre officielle (PDF) dans un nouvel onglet"
+                                >
+                                    <FileText className="w-4 h-4 mr-2" />
+                                    Aperçu de la lettre
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={clearPasswords}
+                                    disabled={busy}
+                                    className="rounded-md"
+                                    data-testid="web-clear-passwords"
+                                >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Effacer
+                                </Button>
+                            </>
                         )}
                     </div>
                 )}

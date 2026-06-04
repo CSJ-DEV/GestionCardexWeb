@@ -180,6 +180,25 @@ class Mandat(Base):
     updated_at = Column(DateTime, nullable=False)  # datetime2(0)
 
 
+class LetterConfig(Base):
+    """Configuration de la lettre PDF officielle envoyée aux avocats.
+
+    Table singleton : une seule ligne id=1 contient le signataire courant
+    (nom, titre, affiliation) + image signature en base64. Modifiable
+    uniquement par le rôle TI via la page Paramètres → Lettres.
+    """
+    __tablename__ = "LetterConfig"
+    id = Column(Integer, primary_key=True)  # toujours 1
+    signataire_nom = Column(String(200), nullable=False, default="")
+    signataire_titre = Column(String(200), nullable=False, default="")
+    signataire_affiliation = Column(String(200), nullable=False, default="Commission des services juridiques")
+    # Image signature en base64 (PNG/JPG) — limite raisonnable 200 KB
+    signature_image_base64 = Column(Text)
+    signature_mime = Column(String(50))  # "image/png" ou "image/jpeg"
+    updated_at = Column(DateTime, nullable=False)
+    updated_by = Column(String(200))
+
+
 # ============================================================
 #                Helpers de conversion ↔ dict
 # ============================================================

@@ -42,6 +42,11 @@ export default function Mandats() {
     const [reinitCode, setReinitCode] = useState("");
     const [reiniting, setReiniting] = useState(false);
 
+    // ---- Dialog Diagnostic ----
+    const [diagOpen, setDiagOpen] = useState(false);
+    const [diagData, setDiagData] = useState(null);
+    const [diagLoading, setDiagLoading] = useState(false);
+
     useEffect(() => {
         api.get("/avocats?page=1&page_size=500")
             .then((res) => setAvocats(res.data?.items || []))
@@ -62,7 +67,17 @@ export default function Mandats() {
             setLimited(data.limited);
             setFviChecked(data.fvi_checked);
             setSelectedKey("");
-            if ((data.items || []).length === 0) {
+
+            // Si erreurs SQL côté serveur, on les affiche en toast distinct (debug TI)
+            const errs = data.errors || {};
+            Object.entries(errs).forEach(([table, msg]) => {
+                toast.error(
+                    `Erreur SQL sur ${table} : ${String(msg).slice(0, 240)}`,
+                    { duration: 15000 }
+                );
+            });
+
+            if ((data.items || []).length === 0 && Object.keys(errs).length === 0) {
                 toast.info("Aucun mandat trouvé");
             } else if (data.limited) {
                 toast.warning(`Limite de 500 résultats atteinte — affinez votre recherche.`);
@@ -89,6 +104,19 @@ export default function Mandats() {
         }
         setReinitCode("");
         setReinitOpen(true);
+    };
+
+    const onDiagnostic = async () => {
+        setDiagLoading(true);
+        try {
+            const { data } = await api.get("/mandats/diagnostic");
+            setDiagData(data);
+            setDiagOpen(true);
+        } catch (err) {
+            toast.error(formatApiError(err.response?.data?.detail) || "Erreur diagnostic");
+        } finally {
+            setDiagLoading(false);
+        }
     };
 
     const onConfirmReinit = async () => {
@@ -200,6 +228,16 @@ export default function Mandats() {
                         >
                             <RotateCcw className="w-5 h-5 mr-2 text-[#0033A0]" />
                             Effacer
+                        </Button>
+                        <Button
+                            type="button" variant="outline"
+                            onClick={onDiagnostic} disabled={diagLoading}
+                            className="rounded-md h-12 px-5"
+                            data-testid="mandat-diag-btn"
+                            title="Vérifier l'état des tables Themis/Fvi"
+                        >
+                            <FileSearch className="w-5 h-5 mr-2 text-amber-600" />
+                            {diagLoading ? "..." : "Diagnostic"}
                         </Button>
                     </div>
                 </div>
@@ -349,6 +387,39 @@ export default function Mandats() {
                             data-testid="reinit-confirm-btn"
                         >
                             {reiniting ? "Réinitialisation..." : "Réinitialiser"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            {/* Dialog Diagnostic Themis/Fvi (TI debug) */}
+            <Dialog open={diagOpen} onOpenChange={setDiagOpen}>
+                <DialogContent className="sm:max-w-3xl max-h-[80vh] overflow-auto" data-testid="diag-dialog">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <FileSearch className="w-5 h-5 text-amber-600" />
+                            Diagnostic Themis / Fvi
+                        </DialogTitle>
+                        <DialogDescription>
+                            État des tables, comptes de lignes et exemples de données pour
+                            aider à comprendre pourquoi une recherche ne renvoie rien.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {diagData ? (
+                        <pre className="text-xs bg-slate-100 p-3 rounded overflow-auto max-h-[55vh]"
+                             data-testid="diag-content">
+{JSON.stringify(diagData, null, 2)}
+                        </pre>
+                    ) : (
+                        <p className="text-sm text-slate-500">Chargement…</p>
+                    )}
+                    <DialogFooter>
+                        <Button
+                            type="button" variant="outline"
+                            onClick={() => setDiagOpen(false)}
+                            className="rounded-md"
+                            data-testid="diag-close-btn"
+                        >
+                            Fermer
                         </Button>
                     </DialogFooter>
                 </DialogContent>

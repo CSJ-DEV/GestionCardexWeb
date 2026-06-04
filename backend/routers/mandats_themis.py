@@ -15,9 +15,11 @@ Tables Fvi utilisées :
 
 Port fidèle du formulaire VB.NET frmMandat avec corrections :
   - Requêtes paramétrées (anti-injection SQL)
-  - UNION ALL côté SQL (fixe le bug DataSource écrasé du VB)
+  - Requêtes SÉPARÉES par table (atattest et megaattest) pour résilience :
+    si une table échoue (colonnes manquantes, droits...), l'autre fonctionne quand même.
   - TOP 500 pour limiter le volume
   - Badge Web hybride (un seul roundtrip réseau)
+  - Erreurs SQL réelles exposées dans la réponse pour debug TI.
 """
 from __future__ import annotations
 
@@ -71,6 +73,8 @@ class MandatSearchOut(BaseModel):
     total: int
     limited: bool  # True si on a hit le TOP 500
     fvi_checked: bool
+    # Diagnostics : erreurs SQL par table (visible TI uniquement)
+    errors: dict = Field(default_factory=dict)
 
 
 class ReinitIn(BaseModel):
@@ -83,16 +87,146 @@ class ReinitIn(BaseModel):
 # ============================================================
 #                       Recherche mandats
 # ============================================================
+def _build_where_and_params(
+    mandat: str, code_avo: str, nom: str, table_alias: str = ""
+) -> tuple[str, dict]:
+    """Construit la clause WHERE et les paramètres selon le mode de recherche.
+
+    Identique pour atattest et megaattest (mêmes noms de colonnes utilisés).
+
+    IMPORTANT pour noref :
+    Le VB.NET utilise Mid(noref, 1, 8) pour générer la condition LIKE — autrement
+    dit il prend les 8 chiffres "NNNNNNNN" (la partie avant le 2e tiret du format
+    saisi RR-BB-NNNNNNNN-NN) et fait `noref LIKE '%NNNNNNNN%'`.
+
+    Les colonnes noref sont CHAR(11) et stockent typiquement "72500038-01"
+    (8 chiffres + tiret + 2 chiffres). Donc LIKE %72500038% matche bien.
+    """
+    where_parts = []
+    params: dict = {}
+
+    if mandat:
+        m = MANDAT_REGEX.match(mandat)
+        if not m:
+            raise HTTPException(
+                status_code=400,
+                detail="Format du mandat invalide. Attendu : RR-BB-NNNNNNNN-NN (ex : 02-15-12345678-99).",
+            )
+        noreg = m.group(1)
+        nobur = m.group(2)
+        noref_8 = m.group(3)   # 8 chiffres
+        noref_2 = m.group(4)   # 2 chiffres derniers (suffixe)
+        # RTRIM/LTRIM pour gérer le padding éventuel des CHAR(n)
+        where_parts.append(
+            "RTRIM(LTRIM(noreg)) = :noreg "
+            "AND RTRIM(LTRIM(nobur)) = :nobur "
+            "AND ("
+            "  RTRIM(LTRIM(noref)) LIKE :noref_p1 "    # %72500038%
+            "  OR RTRIM(LTRIM(noref)) LIKE :noref_p2 " # 72500038-01
+            "  OR RTRIM(LTRIM(noref)) LIKE :noref_p3 " # 7250003801 (sans tiret)
+            ")"
+        )
+        params["noreg"] = noreg
+        params["nobur"] = nobur
+        params["noref_p1"] = f"%{noref_8}%"
+        params["noref_p2"] = f"{noref_8}-{noref_2}"
+        params["noref_p3"] = f"{noref_8}{noref_2}"
+    elif code_avo and nom:
+        where_parts.append(
+            "RTRIM(LTRIM(adatcodeavomand)) = :code_avo "
+            "AND adatreqnom LIKE :nom"
+        )
+        params["code_avo"] = code_avo
+        params["nom"] = f"%{nom}%"
+    elif code_avo:
+        where_parts.append("RTRIM(LTRIM(adatcodeavomand)) = :code_avo")
+        params["code_avo"] = code_avo
+    else:  # nom seul
+        where_parts.append("adatreqnom LIKE :nom")
+        params["nom"] = f"%{nom}%"
+
+    return where_parts[0], params
+
+
+def _query_one_table(
+    themis_engine, table: str, is_megaattest: bool,
+    where_clause: str, params: dict,
+) -> tuple[list[MandatRow], Optional[str]]:
+    """Exécute la requête sur UNE seule table et retourne (rows, error_message).
+
+    Si la table n'existe pas ou échoue, retourne ([], "<message>").
+    """
+    is_sqlserver = themis_engine.dialect.name in ("mssql", "pyodbc", "pymssql")
+    top_clause = "TOP 500" if is_sqlserver else ""
+    limit_clause = "" if is_sqlserver else "LIMIT 500"
+
+    # megaattest concatène prénom + nom pour le champ nom_avocat (legacy VB).
+    # SQL Server utilise '+' pour concat ; SQLite/MySQL utilise '||'.
+    if is_megaattest:
+        if is_sqlserver:
+            nom_avo_expr = (
+                "COALESCE(adatavoprenommand, '') + ' ' + COALESCE(adatavonommand, '')"
+            )
+        else:
+            nom_avo_expr = (
+                "COALESCE(adatavoprenommand, '') || ' ' || COALESCE(adatavonommand, '')"
+            )
+        cond_expr = "'N'"  # megaattest n'a pas adatregcond
+    else:
+        nom_avo_expr = "adatavonommand"
+        cond_expr = "CASE adatregcond WHEN 0 THEN 'O' ELSE 'N' END"
+
+    sql = text(f"""
+        SELECT {top_clause}
+            noreg, nobur, noref,
+            adatcodeavomand AS code_avocat,
+            {nom_avo_expr} AS nom_avocat,
+            adatdateemis AS date_emis,
+            adatdateacceptdeb AS date_retro,
+            {cond_expr} AS conditionnel,
+            adatreqnom AS nom_requerant,
+            adatreqprenom AS prenom_requerant
+        FROM {table}
+        WHERE {where_clause}
+        ORDER BY adatreqnom, adatreqprenom
+        {limit_clause}
+    """)
+
+    rows: list[MandatRow] = []
+    try:
+        with themis_engine.connect() as conn:
+            result = conn.execute(sql, params)
+            for r in result.mappings():
+                rows.append(MandatRow(
+                    source=table,
+                    noreg=(r["noreg"] or "").strip() if r["noreg"] else "",
+                    nobur=(r["nobur"] or "").strip() if r["nobur"] else "",
+                    noref=(r["noref"] or "").strip() if r["noref"] else "",
+                    code_avocat=(r["code_avocat"] or "").strip() if r["code_avocat"] else "",
+                    nom_avocat=(r["nom_avocat"] or "").strip() if r["nom_avocat"] else "",
+                    date_emis=r["date_emis"].isoformat() if r["date_emis"] else None,
+                    date_retro=r["date_retro"].isoformat() if r["date_retro"] else None,
+                    conditionnel=(r["conditionnel"] or "N"),
+                    nom_requerant=(r["nom_requerant"] or "").strip() if r["nom_requerant"] else "",
+                    prenom_requerant=(r["prenom_requerant"] or "").strip() if r["prenom_requerant"] else "",
+                ))
+        return rows, None
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        logger.warning("Requête %s échouée : %s", table, msg)
+        return [], msg
+
+
 @router.post("/search", response_model=MandatSearchOut)
 def search_mandats(
     payload: MandatSearchIn,
     user: dict = Depends(require_role("ti")),
     db: Session = Depends(get_db),
 ):
-    """Recherche unifiée des mandats Themis (atattest + megaattest via UNION ALL).
+    """Recherche unifiée des mandats Themis (atattest + megaattest, requêtes séparées).
 
     4 modes (équivalents au VB) :
-      - mandat: filtre noreg + nobur + noref (LIKE pour noref partiel)
+      - mandat: filtre noreg + nobur + noref (LIKE pour noref partiel sur 8 chiffres)
       - avoreq: code avocat + nom client (LIKE)
       - avo:    code avocat seul
       - req:    nom client seul (LIKE)
@@ -111,124 +245,34 @@ def search_mandats(
             detail="Vous n'avez rien inscrit dans les cases Mandat, code avocat ou nom client !",
         )
 
-    # Décodage du champ Mandat (parsing positionnel fidèle au VB)
-    noreg = nobur = noref_filter = ""
-    if mandat:
-        m = MANDAT_REGEX.match(mandat)
-        if not m:
-            raise HTTPException(
-                status_code=400,
-                detail="Format du mandat invalide. Attendu : RR-BB-NNNNNNNN-NN (ex : 02-15-12345678-99).",
-            )
-        noreg = m.group(1)
-        nobur = m.group(2)
-        # IMPORTANT : le VB utilise Mid(noref, 1, 8) pour la recherche dans atattest,
-        # c'est-à-dire UNIQUEMENT les 8 chiffres avant le dernier tiret (les 2 derniers
-        # chiffres "NN" sont une sous-référence absente de atattest.noref).
-        noref_filter = m.group(3)  # Les 8 chiffres "NNNNNNNN"
+    # Construit la clause WHERE commune aux 2 tables
+    where_clause, params = _build_where_and_params(mandat, code_avo, nom)
 
-    # Construction WHERE paramétré pour chaque table (atattest et megaattest).
-    # On utilise LIKE partout + RTRIM pour gérer le cas où les colonnes sont
-    # CHAR(n) padded par des espaces dans Themis (cas legacy VB).
-    where_parts = []
-    params = {}
-
-    if mandat:
-        where_parts.append(
-            "RTRIM(LTRIM(noreg)) = :noreg "
-            "AND RTRIM(LTRIM(nobur)) = :nobur "
-            "AND (RTRIM(LTRIM(noref)) LIKE :noref_with_dash "
-            "     OR RTRIM(LTRIM(noref)) LIKE :noref_no_dash)"
-        )
-        params["noreg"] = noreg
-        params["nobur"] = nobur
-        # On essaie les deux formats : avec tiret central (NNNNNNNN-NN)
-        # et sans tiret (NNNNNNNNNN) selon comment Themis stocke
-        params["noref_with_dash"] = f"%{noref_filter}%"
-        params["noref_no_dash"] = f"%{noref_filter.replace('-', '')}%"
-    elif code_avo and nom:
-        where_parts.append(
-            "RTRIM(LTRIM(adatcodeavomand)) = :code_avo "
-            "AND adatreqnom LIKE :nom"
-        )
-        params["code_avo"] = code_avo
-        params["nom"] = f"%{nom}%"
-    elif code_avo:
-        where_parts.append("RTRIM(LTRIM(adatcodeavomand)) = :code_avo")
-        params["code_avo"] = code_avo
-    else:  # nom seul
-        where_parts.append("adatreqnom LIKE :nom")
-        params["nom"] = f"%{nom}%"
-
-    where_clause = where_parts[0]
-
-    # UNION ALL des 2 tables (corrige le bug du VB où DataSource était écrasé).
-    # On limite à 500 lignes globalement pour éviter les freezes UI.
-    # TOP est SQL Server, LIMIT est SQLite/MySQL — on adapte selon le dialect.
     themis = get_secondary_engine("Themis")
-    is_sqlserver = themis.dialect.name in ("mssql", "pyodbc", "pymssql")
-    top_clause = "TOP 500" if is_sqlserver else ""
-    limit_clause = "" if is_sqlserver else "LIMIT 500"
 
-    sql = text(f"""
-        SELECT {top_clause} * FROM (
-            SELECT
-                'atattest' AS source,
-                noreg, nobur, noref,
-                adatcodeavomand AS code_avocat,
-                adatavonommand AS nom_avocat,
-                adatdateemis AS date_emis,
-                adatdateacceptdeb AS date_retro,
-                CASE adatregcond WHEN 0 THEN 'O' ELSE 'N' END AS conditionnel,
-                adatreqnom AS nom_requerant,
-                adatreqprenom AS prenom_requerant
-            FROM atattest
-            WHERE {where_clause}
-            UNION ALL
-            SELECT
-                'megaattest' AS source,
-                noreg, nobur, noref,
-                adatcodeavomand AS code_avocat,
-                COALESCE(adatavoprenommand, '') + ' ' + COALESCE(adatavonommand, '') AS nom_avocat,
-                adatdateemis AS date_emis,
-                adatdateacceptdeb AS date_retro,
-                'N' AS conditionnel,
-                adatreqnom AS nom_requerant,
-                adatreqprenom AS prenom_requerant
-            FROM megaattest
-            WHERE {where_clause}
-        ) AS u
-        ORDER BY u.nom_requerant, u.prenom_requerant
-        {limit_clause}
-    """)
+    # Exécution SÉPARÉE des 2 tables → si une échoue, l'autre marche quand même.
+    errors: dict[str, str] = {}
+    rows_atattest, err_a = _query_one_table(
+        themis, "atattest", is_megaattest=False,
+        where_clause=where_clause, params=params,
+    )
+    if err_a:
+        errors["atattest"] = err_a
 
-    # Exécution sur Themis
-    rows: List[MandatRow] = []
-    try:
-        with themis.connect() as conn:
-            result = conn.execute(sql, params)
-            for r in result.mappings():
-                rows.append(MandatRow(
-                    source=r["source"],
-                    noreg=(r["noreg"] or "").strip(),
-                    nobur=(r["nobur"] or "").strip(),
-                    noref=(r["noref"] or "").strip(),
-                    code_avocat=(r["code_avocat"] or "").strip(),
-                    nom_avocat=(r["nom_avocat"] or "").strip(),
-                    date_emis=r["date_emis"].isoformat() if r["date_emis"] else None,
-                    date_retro=r["date_retro"].isoformat() if r["date_retro"] else None,
-                    conditionnel=r["conditionnel"] or "N",
-                    nom_requerant=(r["nom_requerant"] or "").strip(),
-                    prenom_requerant=(r["prenom_requerant"] or "").strip(),
-                ))
-    except Exception as e:
-        # En dev (SQLite vide), les tables n'existent pas → on retourne 0 résultat
-        # sans planter, avec un message diagnostic dans les logs.
-        msg = str(e).lower()
-        if "no such table" in msg or "objet introuvable" in msg or "invalid object name" in msg:
-            logger.warning("Tables Themis (atattest/megaattest) absentes — retour vide.")
-            return MandatSearchOut(items=[], total=0, limited=False, fvi_checked=False)
-        raise
+    rows_megaattest, err_m = _query_one_table(
+        themis, "megaattest", is_megaattest=True,
+        where_clause=where_clause, params=params,
+    )
+    if err_m:
+        errors["megaattest"] = err_m
+
+    rows = rows_atattest + rows_megaattest
+    rows.sort(key=lambda r: (r.nom_requerant, r.prenom_requerant))
+    if len(rows) > 500:
+        rows = rows[:500]
+        limited = True
+    else:
+        limited = False
 
     # Vérification existence des noref dans atattdaj/megaattdaj (alerte VB)
     if mandat and rows:
@@ -240,24 +284,30 @@ def search_mandats(
     try:
         _enrich_with_fvi_status(rows)
         fvi_checked = True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("Fvi check skipped : %s", e)
+        errors["fvi"] = str(e)
         fvi_checked = False
 
     return MandatSearchOut(
         items=rows,
         total=len(rows),
-        limited=len(rows) >= 500,
+        limited=limited,
         fvi_checked=fvi_checked,
+        errors=errors,
     )
 
 
 def _verif_atattdaj(themis_engine, row: MandatRow) -> bool:
     """Vérifie qu'une référence existe dans atattdaj (ou megaattdaj) selon la source."""
     table = "megaattdaj" if row.source == "megaattest" else "atattdaj"
+    is_sqlserver = themis_engine.dialect.name in ("mssql", "pyodbc", "pymssql")
+    top_clause = "TOP 1" if is_sqlserver else ""
+    limit_clause = "" if is_sqlserver else "LIMIT 1"
     sql = text(f"""
-        SELECT TOP 1 1 FROM {table}
+        SELECT {top_clause} 1 FROM {table}
         WHERE noreg = :noreg AND nobur = :nobur AND noref = :noref
+        {limit_clause}
     """)
     try:
         with themis_engine.connect() as conn:
@@ -265,7 +315,7 @@ def _verif_atattdaj(themis_engine, row: MandatRow) -> bool:
                 "noreg": row.noreg, "nobur": row.nobur, "noref": row.noref,
             }).first()
             return result is not None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("VerifAtattdaj err sur %s/%s/%s : %s", row.noreg, row.nobur, row.noref, e)
         return True  # En cas d'erreur, on ne marque pas comme manquant
 
@@ -302,6 +352,78 @@ def _enrich_with_fvi_status(rows: List[MandatRow]) -> None:
 
     for row in rows:
         row.sur_web = (row.noreg, row.nobur, row.noref) in found
+
+
+# ============================================================
+#                       Diagnostic (TI uniquement)
+# ============================================================
+@router.get("/diagnostic")
+def diagnostic(
+    user: dict = Depends(require_role("ti")),
+):
+    """Diagnostic des bases Themis/Fvi pour aider à débuguer les recherches.
+
+    Retourne :
+      - Existence des tables atattest / megaattest / atattdaj / megaattdaj
+      - Colonnes détectées
+      - Sample row (premier enregistrement, censuré)
+      - Compteur total par table
+    """
+    out: dict = {"themis": {}, "fvi": {}}
+
+    themis = get_secondary_engine("Themis")
+    is_sqlserver = themis.dialect.name in ("mssql", "pyodbc", "pymssql")
+
+    for table in ("atattest", "megaattest", "atattdaj", "megaattdaj"):
+        info: dict = {"exists": False}
+        try:
+            with themis.connect() as conn:
+                if is_sqlserver:
+                    cnt = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+                    cols_q = text(
+                        "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH "
+                        "FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = :t"
+                    )
+                    cols = [
+                        {"name": r[0], "type": r[1], "len": r[2]}
+                        for r in conn.execute(cols_q, {"t": table})
+                    ]
+                else:
+                    cnt = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+                    cols = []
+                info["exists"] = True
+                info["row_count"] = cnt
+                info["columns"] = cols
+
+                # Sample : premiers noreg/nobur/noref pour voir le format réel
+                sample_sql = text(
+                    f"SELECT {'TOP 3' if is_sqlserver else ''} "
+                    "noreg, nobur, noref, adatcodeavomand "
+                    f"FROM {table} {'' if is_sqlserver else 'LIMIT 3'}"
+                )
+                sample = []
+                for r in conn.execute(sample_sql).mappings():
+                    sample.append({
+                        "noreg": repr(r["noreg"]),
+                        "nobur": repr(r["nobur"]),
+                        "noref": repr(r["noref"]),
+                        "code_avocat": repr(r["adatcodeavomand"]),
+                    })
+                info["sample"] = sample
+        except Exception as e:  # noqa: BLE001
+            info["error"] = str(e)
+        out["themis"][table] = info
+
+    # Test Fvi
+    try:
+        fvi = get_secondary_engine("Fvi")
+        with fvi.connect() as conn:
+            cnt = conn.execute(text("SELECT COUNT(*) FROM Mandats")).scalar()
+            out["fvi"]["Mandats"] = {"exists": True, "row_count": cnt}
+    except Exception as e:  # noqa: BLE001
+        out["fvi"]["Mandats"] = {"exists": False, "error": str(e)}
+
+    return out
 
 
 # ============================================================

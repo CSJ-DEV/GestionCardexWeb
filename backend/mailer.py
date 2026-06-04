@@ -219,29 +219,28 @@ def generate_letter_pdf(
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=letter,
-        leftMargin=1 * inch, rightMargin=1 * inch,
-        topMargin=0.7 * inch, bottomMargin=0.8 * inch,
+        leftMargin=0.9 * inch, rightMargin=0.9 * inch,
+        topMargin=0.5 * inch, bottomMargin=0.5 * inch,
     )
     styles = getSampleStyleSheet()
     body_style = ParagraphStyle(
         "body", parent=styles["Normal"],
-        fontName="Helvetica", fontSize=11, leading=15, alignment=TA_JUSTIFY,
-        spaceAfter=10,
+        fontName="Helvetica", fontSize=10.5, leading=13.5, alignment=TA_JUSTIFY,
+        spaceAfter=6,
     )
     body_left = ParagraphStyle(
-        "body_left", parent=body_style, alignment=TA_LEFT, spaceAfter=4,
+        "body_left", parent=body_style, alignment=TA_LEFT, spaceAfter=2,
     )
     signature_style = ParagraphStyle(
-        "sig", parent=body_left, fontSize=11, leading=14, spaceAfter=0,
+        "sig", parent=body_left, fontSize=10.5, leading=13, spaceAfter=0,
     )
 
     story = []
 
     # ---- En-tête : logo (gauche) + CONFIDENTIEL (droite) ----
-    # On utilise un Paragraph simple avec mise en forme HTML pour le titre
     if os.path.exists(LOGO_PATH):
         try:
-            img = RLImage(LOGO_PATH, width=2.2 * inch, height=1.0 * inch, kind="proportional")
+            img = RLImage(LOGO_PATH, width=1.7 * inch, height=0.75 * inch, kind="proportional")
             img.hAlign = "LEFT"
             story.append(img)
         except Exception:
@@ -252,28 +251,28 @@ def generate_letter_pdf(
         fontSize=10, alignment=2, textColor=HexColor("#666666"),  # 2 = TA_RIGHT
     )
     story.append(Paragraph("CONFIDENTIEL", confidential))
-    story.append(Spacer(1, 0.3 * inch))
+    story.append(Spacer(1, 0.15 * inch))
 
     # ---- Date ----
     story.append(Paragraph(_format_date_fr(now_local()), body_left))
-    story.append(Spacer(1, 0.25 * inch))
+    story.append(Spacer(1, 0.15 * inch))
 
     # ---- Destinataire ----
     full_name = f"Me {avocat_prenom} {avocat_nom}".strip()
     story.append(Paragraph(full_name, body_left))
     for line in _build_address_lines(adresse):
         story.append(Paragraph(line, body_left))
-    story.append(Spacer(1, 0.3 * inch))
+    story.append(Spacer(1, 0.18 * inch))
 
     # ---- Objet ----
     story.append(Paragraph(
         "<b>Objet : Code d'utilisateur et mots de passe</b>", body_left,
     ))
-    story.append(Spacer(1, 0.25 * inch))
+    story.append(Spacer(1, 0.15 * inch))
 
     # ---- Salutation ----
     story.append(Paragraph("Maître,", body_left))
-    story.append(Spacer(1, 0.1 * inch))
+    story.append(Spacer(1, 0.05 * inch))
 
     # ---- Corps ----
     story.append(Paragraph(
@@ -289,7 +288,7 @@ def generate_letter_pdf(
         f"<b>Mot de passe 2 :</b> {motpasse2 or '—'}"
     )
     story.append(Paragraph(creds_block, body_left))
-    story.append(Spacer(1, 0.15 * inch))
+    story.append(Spacer(1, 0.08 * inch))
 
     story.append(Paragraph(
         "Le mot de passe 1 donne un accès limité vous permettant seulement de "
@@ -333,14 +332,14 @@ def generate_letter_pdf(
         f'<link href="{GUIDE_URL}"><u>Guide d\'utilisation</u></link>',
         link_style,
     ))
-    story.append(Spacer(1, 0.2 * inch))
+    story.append(Spacer(1, 0.1 * inch))
 
     # ---- Formule de politesse ----
     story.append(Paragraph(
         "Nous vous prions de recevoir, Maître, l'expression de nos sentiments "
         "distingués.", body_style,
     ))
-    story.append(Spacer(1, 0.25 * inch))
+    story.append(Spacer(1, 0.15 * inch))
 
     # ---- Signature (image si présente) ----
     sig_nom = getattr(config, "signataire_nom", "") or "M. Yves Boisvert, CPA, CGA"
@@ -351,7 +350,7 @@ def generate_letter_pdf(
     if sig_b64:
         try:
             sig_bytes = base64.b64decode(sig_b64)
-            sig_img = RLImage(BytesIO(sig_bytes), width=2.0 * inch, height=0.7 * inch,
+            sig_img = RLImage(BytesIO(sig_bytes), width=1.6 * inch, height=0.55 * inch,
                               kind="proportional")
             sig_img.hAlign = "LEFT"
             story.append(KeepTogether([
@@ -363,14 +362,14 @@ def generate_letter_pdf(
         except Exception as e:
             logger.warning("Impossible d'inclure la signature image : %s", e)
             story.append(KeepTogether([
-                Spacer(1, 0.7 * inch),
+                Spacer(1, 0.4 * inch),
                 Paragraph(sig_nom, signature_style),
                 Paragraph(sig_titre, signature_style),
                 Paragraph(sig_aff, signature_style),
             ]))
     else:
         story.append(KeepTogether([
-            Spacer(1, 0.7 * inch),
+            Spacer(1, 0.4 * inch),
             Paragraph(sig_nom, signature_style),
             Paragraph(sig_titre, signature_style),
             Paragraph(sig_aff, signature_style),

@@ -10,6 +10,7 @@ import Rapports from "@/pages/Rapports";
 import Utilisateurs from "@/pages/Utilisateurs";
 import Connexions from "@/pages/Connexions";
 import LetterConfig from "@/pages/LetterConfig";
+import Mandats from "@/pages/Mandats";
 import Profil from "@/pages/Profil";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -33,6 +34,7 @@ function App() {
                             <Route path="rapports" element={<Rapports />} />
                             <Route path="utilisateurs" element={<Utilisateurs />} />
                             <Route path="connexions" element={<Connexions />} />
+                            <Route path="mandats" element={<Mandats />} />
                             <Route path="parametres/lettres" element={<LetterConfig />} />
                             <Route path="profil" element={<Profil />} />
                         </Route>

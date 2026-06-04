@@ -72,25 +72,48 @@ def _build_sqlserver_url(db_name: str) -> str | None:
     return f"mssql+pymssql://{user}:{quote_plus(pwd)}@{host}:{port}/{db_name}"
 
 
+def _build_fvi_url() -> str | None:
+    """Assemble l'URL SQLAlchemy pour la BDD Fvi (sur un serveur SÉPARÉ, CSJ-WEB01).
+
+    Variables d'env attendues :
+      FVI_SERVER, FVI_DATABASE, FVI_USER, FVI_PASSWORD, FVI_PORT (optionnel, 1433)
+    """
+    host = os.environ.get("FVI_SERVER")
+    db = os.environ.get("FVI_DATABASE")
+    user = os.environ.get("FVI_USER")
+    pwd = os.environ.get("FVI_PASSWORD", "")
+    port = os.environ.get("FVI_PORT", "1433")
+    if not (host and db and user):
+        return None
+    return f"mssql+pymssql://{user}:{quote_plus(pwd)}@{host}:{port}/{db}"
+
+
 def _resolve_url(db_logical_name: str, env_url_var: str, env_dbname_var: str) -> str:
     """Détermine l'URL effective d'une base selon l'ordre de priorité :
        1. URL complète si fournie (DATABASE_URL...)
-       2. 4-champs SQL Server si host+user+pwd+nomBase fournis
-       3. Fichier SQLite local de fallback (dev)
+       2. Pour Fvi : pattern FVI_* (serveur dédié CSJ-WEB01)
+       3. 4-champs SQL Server si host+user+pwd+nomBase fournis (CardAvo/StaticPc/Art52/Themis)
+       4. Fichier SQLite local de fallback (dev)
     """
     # 1. URL complète prioritaire (mode avancé)
     url = os.environ.get(env_url_var)
     if url:
         return url
 
-    # 2. Mode 4-champs : on regarde si on a un host SQL Server + le nom de la base
+    # 2. Cas spécial Fvi : serveur dédié via FVI_*
+    if db_logical_name == "Fvi":
+        url = _build_fvi_url()
+        if url:
+            return url
+
+    # 3. Mode 4-champs : on regarde si on a un host SQL Server + le nom de la base
     db_name = os.environ.get(env_dbname_var)
     if db_name:
         url = _build_sqlserver_url(db_name)
         if url:
             return url
 
-    # 3. Fallback dev → fichier SQLite
+    # 4. Fallback dev → fichier SQLite
     return f"sqlite:///{SQLITE_DIR / f'{db_logical_name}.db'}"
 
 
@@ -141,6 +164,7 @@ _SECONDARY_CONFIG = {
     "StaticPc": ("DATABASE_URL_STATICPC", "DB_STATICPC"),
     "Art52": ("DATABASE_URL_ART52", "DB_ART52"),
     "Themis": ("DATABASE_URL_THEMIS", "DB_THEMIS"),
+    "Fvi": ("DATABASE_URL_FVI", "DB_FVI"),
 }
 
 

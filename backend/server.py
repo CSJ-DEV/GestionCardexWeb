@@ -34,6 +34,7 @@ from routers.rapports import router as rapports_router
 from routers.users import router as users_router
 from routers.connexions import router as connexions_router
 from routers.system import router as system_router
+from routers.mandats_themis import router as mandats_themis_router
 from routers.letters import router_avocat as letters_avocat_router, router_config as letters_config_router
 
 
@@ -99,6 +100,7 @@ def root():
 # Inclusion de tous les routers métier
 for r in (auth_router, auth_entra_router, avocats_router, adresses_router, mega_inhab_router, audit_router,
           mandats_router, rapports_router, users_router, connexions_router, system_router,
+          mandats_themis_router,
           letters_avocat_router, letters_config_router):
     api_router.include_router(r)
 

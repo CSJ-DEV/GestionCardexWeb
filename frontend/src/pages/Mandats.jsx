@@ -10,9 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-    Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from "@/components/ui/select";
-import {
     Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
 import {
@@ -151,16 +148,24 @@ export default function Mandats() {
                     </div>
                     <div className="flex flex-col">
                         <Label htmlFor="code-avocat" className="text-sm text-slate-700 mb-1">Code avocat</Label>
-                        <Select value={codeAvocat} onValueChange={setCodeAvocat}>
-                            <SelectTrigger id="code-avocat" className="rounded-md h-9 w-28" data-testid="code-avocat-select">
-                                <SelectValue placeholder="" />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-80">
-                                {avocats.map((a) => (
-                                    <SelectItem key={a.code} value={a.code}>{a.code}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <Input
+                            id="code-avocat"
+                            list="avocats-codes-list"
+                            value={codeAvocat}
+                            onChange={(e) => setCodeAvocat(e.target.value.toUpperCase())}
+                            onKeyDown={(e) => { if (e.key === "Enter") onRecherche(); }}
+                            placeholder="ex: P00963"
+                            className="rounded-md h-9 w-32 font-mono"
+                            data-testid="code-avocat-input"
+                            maxLength={10}
+                        />
+                        <datalist id="avocats-codes-list">
+                            {avocats.map((a) => (
+                                <option key={a.code} value={a.code}>
+                                    {a.nom}, {a.prenom}
+                                </option>
+                            ))}
+                        </datalist>
                         <span className="text-[10px] text-slate-500 mt-0.5">&nbsp;</span>
                     </div>
                     <div className="flex flex-col">

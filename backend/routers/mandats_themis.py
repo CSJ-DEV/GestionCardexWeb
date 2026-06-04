@@ -126,21 +126,34 @@ def search_mandats(
         # VB faisait Mid(txt, 7) qui inclut le tiret central
         noref_filter = f"{m.group(3)}-{m.group(4)}"
 
-    # Construction WHERE paramétré pour chaque table (atattest et megaattest)
+    # Construction WHERE paramétré pour chaque table (atattest et megaattest).
+    # On utilise LIKE partout + RTRIM pour gérer le cas où les colonnes sont
+    # CHAR(n) padded par des espaces dans Themis (cas legacy VB).
     where_parts = []
     params = {}
 
     if mandat:
-        where_parts.append("noreg = :noreg AND nobur = :nobur AND noref LIKE :noref")
+        where_parts.append(
+            "RTRIM(LTRIM(noreg)) = :noreg "
+            "AND RTRIM(LTRIM(nobur)) = :nobur "
+            "AND (RTRIM(LTRIM(noref)) LIKE :noref_with_dash "
+            "     OR RTRIM(LTRIM(noref)) LIKE :noref_no_dash)"
+        )
         params["noreg"] = noreg
         params["nobur"] = nobur
-        params["noref"] = f"%{noref_filter}%"
+        # On essaie les deux formats : avec tiret central (NNNNNNNN-NN)
+        # et sans tiret (NNNNNNNNNN) selon comment Themis stocke
+        params["noref_with_dash"] = f"%{noref_filter}%"
+        params["noref_no_dash"] = f"%{noref_filter.replace('-', '')}%"
     elif code_avo and nom:
-        where_parts.append("adatcodeavomand = :code_avo AND adatreqnom LIKE :nom")
+        where_parts.append(
+            "RTRIM(LTRIM(adatcodeavomand)) = :code_avo "
+            "AND adatreqnom LIKE :nom"
+        )
         params["code_avo"] = code_avo
         params["nom"] = f"%{nom}%"
     elif code_avo:
-        where_parts.append("adatcodeavomand = :code_avo")
+        where_parts.append("RTRIM(LTRIM(adatcodeavomand)) = :code_avo")
         params["code_avo"] = code_avo
     else:  # nom seul
         where_parts.append("adatreqnom LIKE :nom")

@@ -31,6 +31,8 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
 
     const validateAll = () => {
         const next = {};
+        if (!(editAdr?.address || "").trim()) next.address = "L'adresse est obligatoire";
+        if (!(editAdr?.ville || "").trim()) next.ville = "La ville est obligatoire";
         if (!isValidCodePostal(editAdr?.codepostal)) next.codepostal = "Format requis : A1A 1A1";
         if (!isValidTelephone(editAdr?.telephone)) next.telephone = "Format requis : 514-555-1234 (10 chiffres)";
         if (!isValidTelephone(editAdr?.telephone2)) next.telephone2 = "Format requis : 514-555-1234 (10 chiffres)";
@@ -144,11 +146,23 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
                 <div className="border-2 border-[#0033A0] rounded-md p-4 space-y-3 bg-blue-50/30">
                     <div className="font-semibold text-sm">{editAdr.id ? "Modifier l'adresse" : "Nouvelle adresse"}</div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <Field label="Adresse">
-                            <Input value={editAdr.address || ""} onChange={(e) => setField("address", e.target.value)} className="rounded-md" />
+                        <Field label="Adresse" required>
+                            <Input
+                                value={editAdr.address || ""}
+                                onChange={(e) => { setField("address", e.target.value); clearError("address"); }}
+                                className={`rounded-md ${errors.address ? "border-red-500" : ""}`}
+                                data-testid="adr-address"
+                            />
+                            {errors.address && <FieldError testId="err-address">{errors.address}</FieldError>}
                         </Field>
-                        <Field label="Ville">
-                            <Input value={editAdr.ville || ""} onChange={(e) => setField("ville", e.target.value)} className="rounded-md" />
+                        <Field label="Ville" required>
+                            <Input
+                                value={editAdr.ville || ""}
+                                onChange={(e) => { setField("ville", e.target.value); clearError("ville"); }}
+                                className={`rounded-md ${errors.ville ? "border-red-500" : ""}`}
+                                data-testid="adr-ville"
+                            />
+                            {errors.ville && <FieldError testId="err-ville">{errors.ville}</FieldError>}
                         </Field>
                         <Field label="Province">
                             <Input value={editAdr.province || ""} onChange={(e) => setField("province", e.target.value.toUpperCase().slice(0, 2))} maxLength={2} className="rounded-md font-mono" />

@@ -31,9 +31,15 @@ export const EMPTY_MEGA = {
 };
 
 // Petit composant Field — label + enfant (input/select/etc.)
-export const Field = ({ label, children }) => (
+// `required` ajoute un astérisque rouge à droite du label.
+export const Field = ({ label, children, required = false }) => (
     <div className="space-y-1.5">
-        <Label className="text-xs font-medium text-slate-700">{label}</Label>
+        <Label className="text-xs font-medium text-slate-700">
+            {label}
+            {required && (
+                <span className="text-red-600 ml-0.5" aria-label="champ obligatoire">*</span>
+            )}
+        </Label>
         {children}
     </div>
 );

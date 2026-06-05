@@ -44,10 +44,10 @@ export const IdentificationTab = ({
             <Field label="Section barreau">
                 <Input value={form.sectbar} onChange={(e) => upd("sectbar", e.target.value)} disabled={readOnly} className="rounded-md" />
             </Field>
-            <Field label="Nom">
+            <Field label="Nom" required>
                 <Input value={form.nom} onChange={(e) => upd("nom", e.target.value)} disabled={readOnly} required className="rounded-md" data-testid="avocat-input-nom" />
             </Field>
-            <Field label="Prénom">
+            <Field label="Prénom" required>
                 <Input value={form.prenom} onChange={(e) => upd("prenom", e.target.value)} disabled={readOnly} required className="rounded-md" data-testid="avocat-input-prenom" />
             </Field>
             <Field label="Année barreau">

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import {
     Search, RotateCcw, RefreshCw, FileSearch, AlertTriangle, CheckCircle2,
-    XCircle, HelpCircle, Loader2,
+    XCircle, HelpCircle, Loader2, ArrowUp, ArrowDown, ArrowUpDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatApiError } from "@/lib/api";
@@ -54,6 +54,21 @@ export default function Mandats() {
     const [diagData, setDiagData] = useState(null);
     const [diagLoading, setDiagLoading] = useState(false);
 
+    // ---- Tri du tableau ----
+    const [sortKey, setSortKey] = useState(null);          // ex: "nom_requerant"
+    const [sortDir, setSortDir] = useState("asc");         // "asc" | "desc"
+
+    const onSort = (key) => {
+        if (sortKey === key) {
+            // 3 états : asc → desc → off
+            if (sortDir === "asc") setSortDir("desc");
+            else { setSortKey(null); setSortDir("asc"); }
+        } else {
+            setSortKey(key);
+            setSortDir("asc");
+        }
+    };
+
     useEffect(() => {
         api.get("/avocats?page=1&page_size=500")
             .then((res) => setAvocats(res.data?.items || []))
@@ -65,6 +80,25 @@ export default function Mandats() {
         () => results.filter((r) => selectedKeys.has(keyOf(r))),
         [results, selectedKeys],
     );
+
+    // Résultats triés selon la colonne active
+    const sortedResults = useMemo(() => {
+        if (!sortKey) return results;
+        const dir = sortDir === "asc" ? 1 : -1;
+        const get = (r) => {
+            const v = r[sortKey];
+            if (v === null || v === undefined) return "";
+            // Dates ISO : on garde la chaîne (tri lexico = tri chrono)
+            return typeof v === "string" ? v.toLowerCase() : v;
+        };
+        return [...results].sort((a, b) => {
+            const va = get(a);
+            const vb = get(b);
+            if (va < vb) return -1 * dir;
+            if (va > vb) return 1 * dir;
+            return 0;
+        });
+    }, [results, sortKey, sortDir]);
 
     if (user && user.role !== "ti") return <Navigate to="/" replace />;
 
@@ -319,23 +353,33 @@ export default function Mandats() {
                                     data-testid="mandat-select-all"
                                 />
                             </TableHead>
-                            <TableHead className="h-9 py-1 text-center w-[70px]">Région</TableHead>
-                            <TableHead className="h-9 py-1 text-center w-[70px]">Bureau</TableHead>
-                            <TableHead className="h-9 py-1">Mandat</TableHead>
-                            <TableHead className="h-9 py-1 text-center">Code avocat</TableHead>
-                            <TableHead className="h-9 py-1 w-[200px]">Nom avocat</TableHead>
-                            <TableHead className="h-9 py-1 text-center">Date émis</TableHead>
-                            <TableHead className="h-9 py-1 text-center">Date rétro</TableHead>
-                            <TableHead className="h-9 py-1 text-center w-[100px]">Conditionnel</TableHead>
-                            <TableHead className="h-9 py-1 w-[150px]">Nom requérant</TableHead>
-                            <TableHead className="h-9 py-1 w-[150px]">Prénom requérant</TableHead>
+                            <SortableHead label="Région" k="noreg" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                className="text-center w-[70px]" />
+                            <SortableHead label="Bureau" k="nobur" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                className="text-center w-[70px]" />
+                            <SortableHead label="Mandat" k="noref" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                            <SortableHead label="Code avocat" k="code_avocat" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                className="text-center" />
+                            <SortableHead label="Nom avocat" k="nom_avocat" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                className="w-[200px]" />
+                            <SortableHead label="Date émis" k="date_emis" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                className="text-center" />
+                            <SortableHead label="Date rétro" k="date_retro" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                className="text-center" />
+                            <SortableHead label="Conditionnel" k="conditionnel" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                className="text-center w-[100px]" />
+                            <SortableHead label="Nom requérant" k="nom_requerant" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                className="w-[150px]" />
+                            <SortableHead label="Prénom requérant" k="prenom_requerant" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                className="w-[150px]" />
                             {fviChecked && (
-                                <TableHead className="h-9 py-1 text-center w-[90px]">Web</TableHead>
+                                <SortableHead label="Web" k="sur_web" sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                                    className="text-center w-[90px]" />
                             )}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {results.length === 0 && !searching ? (
+                        {sortedResults.length === 0 && !searching ? (
                             <TableRow>
                                 <TableCell colSpan={fviChecked ? 12 : 11} className="text-center py-12 text-sm text-slate-400">
                                     <FileSearch className="w-10 h-10 mx-auto mb-2 text-slate-300" />
@@ -343,7 +387,7 @@ export default function Mandats() {
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            results.map((m) => {
+                            sortedResults.map((m) => {
                                 const k = keyOf(m);
                                 const isChecked = selectedKeys.has(k);
                                 return (
@@ -567,6 +611,27 @@ export default function Mandats() {
 
 function keyOf(row) {
     return `${row.source}|${row.noreg}|${row.nobur}|${row.noref}`;
+}
+
+function SortableHead({ label, k, sortKey, sortDir, onSort, className = "" }) {
+    const isActive = sortKey === k;
+    const Icon = !isActive ? ArrowUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
+    return (
+        <TableHead className={`h-9 py-1 ${className}`}>
+            <button
+                type="button"
+                onClick={() => onSort(k)}
+                className={`inline-flex items-center gap-1 hover:text-[#0033A0] focus:outline-none ${
+                    isActive ? "text-[#0033A0] font-semibold" : "text-slate-700"
+                }`}
+                data-testid={`mandat-sort-${k}`}
+                title={`Trier par ${label}`}
+            >
+                {label}
+                <Icon className={`w-3.5 h-3.5 ${isActive ? "" : "opacity-40"}`} />
+            </button>
+        </TableHead>
+    );
 }
 
 function fmtDate(iso) {

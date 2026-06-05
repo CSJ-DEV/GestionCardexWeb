@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import {
-    Search, RotateCcw, RefreshCw, FileSearch, AlertTriangle, CheckCircle2, XCircle, HelpCircle,
+    Search, RotateCcw, RefreshCw, FileSearch, AlertTriangle, CheckCircle2,
+    XCircle, HelpCircle, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { formatApiError } from "@/lib/api";
@@ -9,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
@@ -19,7 +21,12 @@ import {
 /**
  * Page Mandats — TI uniquement.
  * Port du formulaire VB.NET frmMandat. Source : Themis (atattest + megaattest
- * via UNION ALL). Badge Web : présence dans Fvi (CSJ-WEB01).
+ * requêtes séparées). Badge Web : présence dans Fvi (CSJ-WEB01).
+ *
+ * Fonctionnalités :
+ *  - Indicateur visuel pendant la recherche (overlay + spinner sur bouton)
+ *  - Sélection multiple via checkboxes + "Tout sélectionner"
+ *  - Réinitialisation en lot avec confirmation par case à cocher (pas de retape)
  */
 export default function Mandats() {
     const { user } = useAuth();
@@ -32,14 +39,14 @@ export default function Mandats() {
     // ---- Données ----
     const [avocats, setAvocats] = useState([]);
     const [results, setResults] = useState([]);
-    const [selectedKey, setSelectedKey] = useState("");
+    const [selectedKeys, setSelectedKeys] = useState(() => new Set());
     const [searching, setSearching] = useState(false);
     const [limited, setLimited] = useState(false);
     const [fviChecked, setFviChecked] = useState(false);
 
-    // ---- Dialog Réinitialiser ----
+    // ---- Dialog Réinitialiser (batch) ----
     const [reinitOpen, setReinitOpen] = useState(false);
-    const [reinitCode, setReinitCode] = useState("");
+    const [reinitConfirmed, setReinitConfirmed] = useState(false);
     const [reiniting, setReiniting] = useState(false);
 
     // ---- Dialog Diagnostic ----
@@ -53,10 +60,36 @@ export default function Mandats() {
             .catch(() => setAvocats([]));
     }, []);
 
+    // Lignes sélectionnées (objets MandatRow complets) — DOIT être avant tout early return
+    const selectedRows = useMemo(
+        () => results.filter((r) => selectedKeys.has(keyOf(r))),
+        [results, selectedKeys],
+    );
+
     if (user && user.role !== "ti") return <Navigate to="/" replace />;
+
+    const allSelected = results.length > 0 && selectedKeys.size === results.length;
+    const someSelected = selectedKeys.size > 0 && !allSelected;
+
+    const toggleOne = (k) => {
+        setSelectedKeys((prev) => {
+            const next = new Set(prev);
+            if (next.has(k)) next.delete(k);
+            else next.add(k);
+            return next;
+        });
+    };
+
+    const toggleAll = () => {
+        setSelectedKeys((prev) => {
+            if (prev.size === results.length) return new Set();
+            return new Set(results.map(keyOf));
+        });
+    };
 
     const onRecherche = async () => {
         setSearching(true);
+        setSelectedKeys(new Set());
         try {
             const { data } = await api.post("/mandats/search", {
                 mandat: mandat || null,
@@ -66,9 +99,8 @@ export default function Mandats() {
             setResults(data.items || []);
             setLimited(data.limited);
             setFviChecked(data.fvi_checked);
-            setSelectedKey("");
 
-            // Si erreurs SQL côté serveur, on les affiche en toast distinct (debug TI)
+            // Erreurs SQL côté serveur (debug TI)
             const errs = data.errors || {};
             Object.entries(errs).forEach(([table, msg]) => {
                 toast.error(
@@ -94,16 +126,52 @@ export default function Mandats() {
         setCodeAvocat("");
         setNomClient("");
         setResults([]);
-        setSelectedKey("");
+        setSelectedKeys(new Set());
     };
 
     const onOpenReinit = () => {
-        if (!selectedKey) {
-            toast.warning("Veuillez sélectionner un mandat dans le tableau");
+        if (selectedKeys.size === 0) {
+            toast.warning("Veuillez sélectionner au moins un mandat dans le tableau");
             return;
         }
-        setReinitCode("");
+        setReinitConfirmed(false);
         setReinitOpen(true);
+    };
+
+    const onConfirmReinit = async () => {
+        if (!reinitConfirmed || selectedRows.length === 0) return;
+        try {
+            setReiniting(true);
+            const { data } = await api.post("/mandats/reinit-batch", {
+                items: selectedRows.map((r) => ({
+                    source: r.source,
+                    noreg: r.noreg,
+                    nobur: r.nobur,
+                    noref: r.noref,
+                })),
+                confirmed: true,
+            });
+
+            const msg = `${data.success_count} mandat(s) réinitialisé(s)`
+                + (data.error_count > 0 ? `, ${data.error_count} en erreur` : "")
+                + ". N'oubliez pas de lancer l'importation pour vider le trigger !";
+            if (data.error_count === 0) {
+                toast.success(msg, { duration: 12000 });
+            } else {
+                toast.warning(msg, { duration: 15000 });
+                // Détail des erreurs en toasts séparés
+                data.results.filter((r) => !r.ok).forEach((r) => {
+                    toast.error(`${r.mandat} : ${r.error}`, { duration: 12000 });
+                });
+            }
+            setReinitOpen(false);
+            // On vide la sélection mais on garde les résultats pour audit visuel
+            setSelectedKeys(new Set());
+        } catch (err) {
+            toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
+        } finally {
+            setReiniting(false);
+        }
     };
 
     const onDiagnostic = async () => {
@@ -118,32 +186,6 @@ export default function Mandats() {
             setDiagLoading(false);
         }
     };
-
-    const onConfirmReinit = async () => {
-        const sel = results.find((r) => keyOf(r) === selectedKey);
-        if (!sel) return;
-        try {
-            setReiniting(true);
-            const { data } = await api.post("/mandats/reinit", {
-                noreg: sel.noreg,
-                nobur: sel.nobur,
-                noref: sel.noref,
-                confirmation_code: reinitCode.trim(),
-            });
-            toast.success(data.message, { duration: 12000 });
-            setReinitOpen(false);
-            onEffacer();
-        } catch (err) {
-            toast.error(formatApiError(err.response?.data?.detail) || "Erreur");
-        } finally {
-            setReiniting(false);
-        }
-    };
-
-    const selectedRow = results.find((r) => keyOf(r) === selectedKey);
-    const expectedCode = selectedRow
-        ? `${selectedRow.noreg}-${selectedRow.nobur}-${selectedRow.noref}`
-        : "";
 
     return (
         <div className="h-full flex flex-col gap-4 -m-6 md:-m-8 p-6 md:p-8" data-testid="mandats-page">
@@ -171,6 +213,7 @@ export default function Mandats() {
                             className="rounded-md h-9 w-56"
                             data-testid="mandat-input"
                             autoFocus
+                            disabled={searching}
                         />
                         <span className="text-[10px] text-slate-500 mt-0.5">( Format RR-BB-NNNNNNNN-NN )</span>
                     </div>
@@ -186,6 +229,7 @@ export default function Mandats() {
                             className="rounded-md h-9 w-32 font-mono"
                             data-testid="code-avocat-input"
                             maxLength={10}
+                            disabled={searching}
                         />
                         <datalist id="avocats-codes-list">
                             {avocats.map((a) => (
@@ -204,6 +248,7 @@ export default function Mandats() {
                             onKeyDown={(e) => { if (e.key === "Enter") onRecherche(); }}
                             className="rounded-md h-9 w-64"
                             data-testid="nom-client-input"
+                            disabled={searching}
                         />
                         <span className="text-[10px] text-slate-500 mt-0.5">&nbsp;</span>
                     </div>
@@ -217,12 +262,17 @@ export default function Mandats() {
                             className="rounded-md h-12 px-5 border-2 border-[#0033A0]"
                             data-testid="mandat-search-btn"
                         >
-                            <Search className="w-5 h-5 mr-2" />
-                            {searching ? "Recherche..." : "Recherche"}
+                            {searching ? (
+                                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                            ) : (
+                                <Search className="w-5 h-5 mr-2" />
+                            )}
+                            {searching ? "Recherche en cours…" : "Recherche"}
                         </Button>
                         <Button
                             type="button" variant="outline"
                             onClick={onEffacer}
+                            disabled={searching}
                             className="rounded-md h-12 px-5"
                             data-testid="mandat-clear-btn"
                         >
@@ -231,7 +281,7 @@ export default function Mandats() {
                         </Button>
                         <Button
                             type="button" variant="outline"
-                            onClick={onDiagnostic} disabled={diagLoading}
+                            onClick={onDiagnostic} disabled={diagLoading || searching}
                             className="rounded-md h-12 px-5"
                             data-testid="mandat-diag-btn"
                             title="Vérifier l'état des tables Themis/Fvi"
@@ -243,11 +293,32 @@ export default function Mandats() {
                 </div>
             </div>
 
-            {/* Tableau résultats */}
-            <div className="bg-white border border-slate-400 rounded-md overflow-auto flex-1 min-h-0">
+            {/* Tableau résultats avec overlay loading */}
+            <div className="bg-white border border-slate-400 rounded-md overflow-auto flex-1 min-h-0 relative">
+                {searching && (
+                    <div
+                        className="absolute inset-0 bg-white/70 backdrop-blur-[1px] z-20 flex items-center justify-center"
+                        data-testid="mandats-loading-overlay"
+                    >
+                        <div className="flex flex-col items-center gap-2 text-[#0033A0]">
+                            <Loader2 className="w-10 h-10 animate-spin" />
+                            <p className="text-sm font-medium">Recherche en cours dans Themis…</p>
+                            <p className="text-xs text-slate-500">Cela peut prendre quelques secondes</p>
+                        </div>
+                    </div>
+                )}
                 <Table data-testid="mandats-table">
                     <TableHeader className="sticky top-0 bg-slate-50 z-10">
                         <TableRow className="bg-slate-50">
+                            <TableHead className="h-9 py-1 w-[44px] text-center">
+                                <Checkbox
+                                    checked={allSelected || (someSelected ? "indeterminate" : false)}
+                                    onCheckedChange={toggleAll}
+                                    disabled={results.length === 0}
+                                    aria-label="Tout sélectionner"
+                                    data-testid="mandat-select-all"
+                                />
+                            </TableHead>
                             <TableHead className="h-9 py-1 text-center w-[70px]">Région</TableHead>
                             <TableHead className="h-9 py-1 text-center w-[70px]">Bureau</TableHead>
                             <TableHead className="h-9 py-1">Mandat</TableHead>
@@ -264,9 +335,9 @@ export default function Mandats() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {results.length === 0 ? (
+                        {results.length === 0 && !searching ? (
                             <TableRow>
-                                <TableCell colSpan={fviChecked ? 11 : 10} className="text-center py-12 text-sm text-slate-400">
+                                <TableCell colSpan={fviChecked ? 12 : 11} className="text-center py-12 text-sm text-slate-400">
                                     <FileSearch className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                                     Aucun résultat — utilisez les filtres ci-dessus pour rechercher
                                 </TableCell>
@@ -274,13 +345,26 @@ export default function Mandats() {
                         ) : (
                             results.map((m) => {
                                 const k = keyOf(m);
+                                const isChecked = selectedKeys.has(k);
                                 return (
                                     <TableRow
                                         key={k}
-                                        onClick={() => setSelectedKey(k)}
-                                        className={`cursor-pointer [&>td]:py-1.5 ${selectedKey === k ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                                        onClick={(e) => {
+                                            // Ne pas toggle si on clique directement sur la checkbox
+                                            if (e.target.closest("[data-checkbox-cell]")) return;
+                                            toggleOne(k);
+                                        }}
+                                        className={`cursor-pointer [&>td]:py-1.5 ${isChecked ? "bg-blue-50" : "hover:bg-slate-50"}`}
                                         data-testid={`mandat-row-${k}`}
                                     >
+                                        <TableCell className="text-center" data-checkbox-cell>
+                                            <Checkbox
+                                                checked={isChecked}
+                                                onCheckedChange={() => toggleOne(k)}
+                                                aria-label="Sélectionner ce mandat"
+                                                data-testid={`mandat-check-${k}`}
+                                            />
+                                        </TableCell>
                                         <TableCell className="text-center font-mono text-xs">{m.noreg}</TableCell>
                                         <TableCell className="text-center font-mono text-xs">{m.nobur}</TableCell>
                                         <TableCell className="font-mono text-xs">
@@ -321,6 +405,11 @@ export default function Mandats() {
                     {results.length > 0 && (
                         <>
                             {results.length} mandat{results.length > 1 ? "s" : ""} trouvé{results.length > 1 ? "s" : ""}
+                            {selectedKeys.size > 0 && (
+                                <span className="ml-2 text-[#0033A0] font-semibold">
+                                    — {selectedKeys.size} sélectionné{selectedKeys.size > 1 ? "s" : ""}
+                                </span>
+                            )}
                             {limited && <span className="text-amber-600 ml-2">(limité à 500)</span>}
                             {!fviChecked && results.length > 0 && (
                                 <span className="text-slate-400 ml-2">— Fvi non disponible</span>
@@ -331,49 +420,92 @@ export default function Mandats() {
                 <Button
                     type="button" variant="outline"
                     onClick={onOpenReinit}
-                    disabled={!selectedKey}
+                    disabled={selectedKeys.size === 0 || searching}
                     className="rounded-md h-12 px-5"
                     data-testid="mandat-reinit-btn"
                 >
                     <RefreshCw className="w-5 h-5 mr-2 text-[#0033A0]" />
-                    Réinitialiser
+                    Réinitialiser{selectedKeys.size > 0 ? ` (${selectedKeys.size})` : ""}
                 </Button>
             </div>
 
-            {/* Dialog Réinitialiser */}
-            <Dialog open={reinitOpen} onOpenChange={setReinitOpen}>
-                <DialogContent className="sm:max-w-md" data-testid="reinit-dialog">
+            {/* Dialog Réinitialiser (batch) */}
+            <Dialog open={reinitOpen} onOpenChange={(open) => {
+                if (!reiniting) setReinitOpen(open);
+            }}>
+                <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col" data-testid="reinit-dialog">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <AlertTriangle className="w-5 h-5 text-amber-600" />
-                            Réinitialiser le mandat
+                            Réinitialiser {selectedRows.length} mandat{selectedRows.length > 1 ? "s" : ""}
                         </DialogTitle>
                         <DialogDescription>
-                            Cette action exécutera un UPDATE dans la table <code>atattest</code> pour
-                            armer le trigger de synchronisation. <strong>N'oubliez pas de lancer
-                            l'importation</strong> après pour vider le trigger.
+                            Cette action exécutera un UPDATE dans la table <code>atattest</code>
+                            {" "}(ou <code>megaattest</code>) pour armer le trigger de synchronisation.
+                            <br />
+                            <strong>N'oubliez pas de lancer l'importation</strong> après pour vider le trigger.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="py-3 space-y-3">
-                        <p className="text-sm text-slate-700">
-                            Pour confirmer, saisissez le code mandat complet ci-dessous :
-                        </p>
-                        <code className="block bg-slate-100 px-3 py-2 rounded font-mono text-sm">
-                            {expectedCode}
-                        </code>
-                        <Input
-                            value={reinitCode}
-                            onChange={(e) => setReinitCode(e.target.value)}
-                            placeholder="Recopiez le code ci-dessus"
-                            className="font-mono"
-                            data-testid="reinit-confirm-input"
-                            autoFocus
-                        />
+
+                    {/* Liste des mandats sélectionnés */}
+                    <div className="flex-1 overflow-auto border border-slate-200 rounded-md my-2"
+                         data-testid="reinit-list">
+                        <table className="w-full text-xs">
+                            <thead className="bg-slate-50 sticky top-0">
+                                <tr>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-600">Source</th>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-600">Mandat</th>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-600">Avocat</th>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-600">Requérant</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {selectedRows.map((r) => (
+                                    <tr key={keyOf(r)} className="border-t border-slate-100">
+                                        <td className="px-3 py-1.5">
+                                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                                                r.source === "megaattest" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                                            }`}>
+                                                {r.source}
+                                            </span>
+                                        </td>
+                                        <td className="px-3 py-1.5 font-mono">
+                                            {r.noreg}-{r.nobur}-{r.noref}
+                                        </td>
+                                        <td className="px-3 py-1.5">
+                                            <span className="font-mono">{r.code_avocat}</span>
+                                            {r.nom_avocat && (
+                                                <span className="text-slate-500 ml-1">— {r.nom_avocat}</span>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-1.5">
+                                            {[r.nom_requerant, r.prenom_requerant].filter(Boolean).join(", ")}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
-                    <DialogFooter className="gap-2">
+
+                    {/* Case à cocher de confirmation */}
+                    <div className="flex items-start gap-2 py-2 px-3 bg-amber-50 border border-amber-200 rounded-md">
+                        <Checkbox
+                            id="reinit-confirm-chk"
+                            checked={reinitConfirmed}
+                            onCheckedChange={(v) => setReinitConfirmed(!!v)}
+                            data-testid="reinit-confirm-chk"
+                            className="mt-0.5"
+                        />
+                        <label htmlFor="reinit-confirm-chk" className="text-sm text-slate-800 cursor-pointer select-none">
+                            Je confirme la réinitialisation des {selectedRows.length} mandat{selectedRows.length > 1 ? "s" : ""} ci-dessus.
+                        </label>
+                    </div>
+
+                    <DialogFooter className="gap-2 shrink-0">
                         <Button
                             type="button" variant="outline"
                             onClick={() => setReinitOpen(false)}
+                            disabled={reiniting}
                             className="rounded-md"
                             data-testid="reinit-cancel-btn"
                         >
@@ -382,15 +514,20 @@ export default function Mandats() {
                         <Button
                             type="button"
                             onClick={onConfirmReinit}
-                            disabled={reiniting || reinitCode.trim() !== expectedCode}
+                            disabled={reiniting || !reinitConfirmed}
                             className="rounded-md bg-red-600 hover:bg-red-700 text-white"
                             data-testid="reinit-confirm-btn"
                         >
-                            {reiniting ? "Réinitialisation..." : "Réinitialiser"}
+                            {reiniting ? (
+                                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Réinitialisation…</>
+                            ) : (
+                                `Réinitialiser ${selectedRows.length} mandat${selectedRows.length > 1 ? "s" : ""}`
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
             {/* Dialog Diagnostic Themis/Fvi (TI debug) */}
             <Dialog open={diagOpen} onOpenChange={setDiagOpen}>
                 <DialogContent className="sm:max-w-3xl max-h-[80vh] overflow-auto" data-testid="diag-dialog">
@@ -453,7 +590,6 @@ function WebBadge({ sur_web, conditionnel }) {
             </span>
         );
     }
-    // Pas sur le Web
     const cls = conditionnel === "O" ? "text-red-600" : "text-amber-600";
     const titre = conditionnel === "O"
         ? "Conditionnel mais ABSENT du Web — incohérence"

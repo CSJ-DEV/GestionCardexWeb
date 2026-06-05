@@ -84,6 +84,31 @@ class ReinitIn(BaseModel):
     confirmation_code: str  # doit matcher "noreg-nobur-noref" pour double confirmation
 
 
+class ReinitBatchItem(BaseModel):
+    source: str  # "atattest" ou "megaattest"
+    noreg: str
+    nobur: str
+    noref: str
+
+
+class ReinitBatchIn(BaseModel):
+    items: List[ReinitBatchItem]
+    confirmed: bool = False  # case à cocher "Je confirme la réinitialisation"
+
+
+class ReinitBatchResultItem(BaseModel):
+    mandat: str
+    source: str
+    ok: bool
+    error: Optional[str] = None
+
+
+class ReinitBatchOut(BaseModel):
+    results: List[ReinitBatchResultItem]
+    success_count: int
+    error_count: int
+
+
 # ============================================================
 #                       Recherche mandats
 # ============================================================
@@ -555,3 +580,95 @@ def reinit_mandat(
             "l'importation afin de vider le trigger !"
         ),
     }
+
+
+
+@router.post("/reinit-batch", response_model=ReinitBatchOut)
+def reinit_mandats_batch(
+    payload: ReinitBatchIn,
+    user: dict = Depends(require_role("ti")),
+    _: Session = Depends(get_db),
+):
+    """Réinitialise plusieurs mandats en une seule opération.
+
+    Confirmation simplifiée : l'utilisateur a déjà sélectionné les mandats
+    via checkboxes et coché la case "Je confirme" — pas besoin de retaper.
+
+    UPDATE atattest pour les sources 'atattest', UPDATE megaattest pour 'megaattest'.
+    Chaque mandat est réinitialisé indépendamment ; si l'un échoue, les autres
+    continuent et on retourne le détail par mandat.
+    """
+    if not payload.confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="Vous devez cocher la case de confirmation pour procéder.",
+        )
+    if not payload.items:
+        raise HTTPException(
+            status_code=400,
+            detail="Aucun mandat sélectionné.",
+        )
+    if len(payload.items) > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum 100 mandats par lot.",
+        )
+
+    themis = get_secondary_engine("Themis")
+    results: list[ReinitBatchResultItem] = []
+    success_count = 0
+    error_count = 0
+
+    for item in payload.items:
+        mandat_label = f"{item.noreg}-{item.nobur}-{item.noref}"
+        table = "megaattest" if item.source == "megaattest" else "atattest"
+
+        sql = text(f"""
+            UPDATE {table}
+            SET noregbur = noregbur
+            WHERE noreg = :noreg AND nobur = :nobur AND noref = :noref
+        """)
+
+        try:
+            with themis.begin() as conn:
+                result = conn.execute(sql, {
+                    "noreg": item.noreg,
+                    "nobur": item.nobur,
+                    "noref": item.noref,
+                })
+                rows_affected = result.rowcount
+
+            if rows_affected == 0:
+                results.append(ReinitBatchResultItem(
+                    mandat=mandat_label,
+                    source=item.source,
+                    ok=False,
+                    error=f"Mandat introuvable dans {table}",
+                ))
+                error_count += 1
+            else:
+                results.append(ReinitBatchResultItem(
+                    mandat=mandat_label,
+                    source=item.source,
+                    ok=True,
+                ))
+                success_count += 1
+                logger.info(
+                    "Mandat %s (%s) réinitialisé par %s",
+                    mandat_label, table, user.get("email", ""),
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Reinit batch err sur %s : %s", mandat_label, e)
+            results.append(ReinitBatchResultItem(
+                mandat=mandat_label,
+                source=item.source,
+                ok=False,
+                error=str(e)[:200],
+            ))
+            error_count += 1
+
+    return ReinitBatchOut(
+        results=results,
+        success_count=success_count,
+        error_count=error_count,
+    )

@@ -70,7 +70,8 @@ export default function Mandats() {
     };
 
     useEffect(() => {
-        api.get("/avocats?page=1&page_size=500")
+        // Limite alignée sur le max backend (200) — suffisant pour le datalist
+        api.get("/avocats?page=1&page_size=200")
             .then((res) => setAvocats(res.data?.items || []))
             .catch(() => setAvocats([]));
     }, []);

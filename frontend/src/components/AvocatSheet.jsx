@@ -53,6 +53,8 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
     const [editInhab, setEditInhab] = useState(null);
     const [mega, setMega] = useState(EMPTY_MEGA);
     const [megaSaving, setMegaSaving] = useState(false);
+    // Taxes (lecture seule) chargées depuis Fvi.avocats sur CSJ-WEB01
+    const [taxes, setTaxes] = useState({ tps: "", tvq: "", firme: "", found: false, loading: false });
     // Onglet actif (contrôlé) — utile pour rebasculer hors de Méga si l'utilisateur
     // désactive le flag « Méga » dans Identification.
     const [activeTab, setActiveTab] = useState("ident");
@@ -97,6 +99,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
             setAdresses([]);
             setInhabs([]);
             setMega(EMPTY_MEGA);
+            setTaxes({ tps: "", tvq: "", firme: "", found: false, loading: false });
             setBaseline((b) => ({ ...b, mega: stable(EMPTY_MEGA) }));
             return;
         }
@@ -110,6 +113,14 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
             setMega(EMPTY_MEGA);
             setBaseline((b) => ({ ...b, mega: stable(EMPTY_MEGA) }));
         });
+        // Taxes (TPS / TVQ) lecture seule depuis Fvi.avocats — non bloquant
+        setTaxes((t) => ({ ...t, loading: true }));
+        api.get(`/avocats/${avocatId}/taxes`)
+            .then(({ data }) => setTaxes({
+                tps: data?.tps || "", tvq: data?.tvq || "",
+                firme: data?.firme || "", found: !!data?.found, loading: false,
+            }))
+            .catch(() => setTaxes({ tps: "", tvq: "", firme: "", found: false, loading: false }));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [avocatId]);
 
@@ -287,6 +298,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                             onSubmit={handleSubmit} onCancel={() => onOpenChange(false)}
                             savedMega={!!avocat?.mega}
                             savedFactweb={!!avocat?.factweb}
+                            taxes={taxes}
                         />
                     </TabsContent>
 

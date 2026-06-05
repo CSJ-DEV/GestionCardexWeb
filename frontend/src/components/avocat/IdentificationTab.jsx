@@ -18,6 +18,7 @@ const STATUTS = [
 export const IdentificationTab = ({
     form, upd, isEditing, readOnly, saving, onTypeChange,
     onSubmit, onCancel, savedMega, savedFactweb,
+    taxes = { tps: "", tvq: "", firme: "", found: false, loading: false },
 }) => (
     <form onSubmit={onSubmit} className="space-y-6" data-testid="avocat-form">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -64,8 +65,23 @@ export const IdentificationTab = ({
             <Field label="Date inscription barreau">
                 <DateInput value={form.dateinscbarr || ""} onChange={(v) => upd("dateinscbarr", v)} disabled={readOnly} className="rounded-md font-mono" />
             </Field>
-            <Field label="Taxes (lecture seule — autre serveur)">
-                <Input value={form.taxes || ""} disabled placeholder="— provient de la BDD taxes —" className="rounded-md text-slate-500" data-testid="avocat-input-taxes" />
+            <Field label={`TPS — n° taxe ${taxes.loading ? "(chargement…)" : "(lecture seule — Fvi)"}`}>
+                <Input
+                    value={taxes.tps || ""}
+                    disabled
+                    placeholder={taxes.loading ? "…" : (taxes.found ? "—" : "non renseigné dans Fvi")}
+                    className="rounded-md font-mono text-slate-600 bg-slate-50"
+                    data-testid="avocat-input-tps"
+                />
+            </Field>
+            <Field label={`TVQ — n° taxe ${taxes.loading ? "(chargement…)" : "(lecture seule — Fvi)"}`}>
+                <Input
+                    value={taxes.tvq || ""}
+                    disabled
+                    placeholder={taxes.loading ? "…" : (taxes.found ? "—" : "non renseigné dans Fvi")}
+                    className="rounded-md font-mono text-slate-600 bg-slate-50"
+                    data-testid="avocat-input-tvq"
+                />
             </Field>
             <Field label="Ville référence">
                 <Input value={form.villerref} onChange={(e) => upd("villerref", e.target.value)} disabled={readOnly} className="rounded-md" />

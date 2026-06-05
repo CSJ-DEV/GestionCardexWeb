@@ -8,12 +8,12 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_, desc, asc
+from sqlalchemy import or_, desc, asc, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from audit import write_audit, avocat_to_dict
-from database import get_db
+from database import get_db, get_secondary_engine
 from models import Avocat, Adresse, InfoMega, Inhpra, Mandat, InfoDistrict, bool_to_yn
 from schemas import (
     AvocatCreate, AvocatUpdate, AvocatOut, AvocatsListOut, StatsOut,
@@ -129,6 +129,60 @@ def get_avocat(avocat_id: str, user: dict = Depends(get_current_user), db: Sessi
     if not a:
         raise HTTPException(status_code=404, detail="Avocat introuvable")
     return AvocatOut(**avocat_to_dict(a, db))
+
+
+@router.get("/{avocat_id}/taxes")
+def get_avocat_taxes(
+    avocat_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Retourne les numéros de taxes (TPS/TVQ) de l'avocat depuis Fvi.Avocats.
+
+    Source : serveur CSJ-WEB01, base Fvi, table `avocats`.
+    Lookup : `cart52uid = code` (mapping legacy depuis le VB).
+
+    Colonnes :
+      - cnotax1 = TPS
+      - cnotax2 = TVQ
+      - cfirme  = nom de la firme (info supplémentaire)
+
+    Retourne `{tps, tvq, firme, found}`. Si l'avocat n'a pas d'entrée Fvi,
+    found=false et les champs sont vides (pas d'erreur).
+    """
+    try:
+        fvi = get_secondary_engine("Fvi")
+    except Exception as e:  # noqa: BLE001
+        # Fvi non configurée → on retourne un état vide, pas une 500.
+        return {
+            "tps": "", "tvq": "", "firme": "",
+            "found": False, "error": f"Fvi non disponible : {e}",
+        }
+
+    sql = text("""
+        SELECT cfirme, cnotax1, cnotax2
+        FROM avocats
+        WHERE RTRIM(LTRIM(cart52uid)) = :code
+    """)
+    try:
+        with fvi.connect() as conn:
+            row = conn.execute(sql, {"code": avocat_id}).first()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Lecture Fvi.avocats échouée pour %s : %s", avocat_id, e)
+        return {
+            "tps": "", "tvq": "", "firme": "",
+            "found": False, "error": str(e)[:200],
+        }
+
+    if not row:
+        return {"tps": "", "tvq": "", "firme": "", "found": False}
+
+    return {
+        "tps": (row[1] or "").strip() if row[1] else "",
+        "tvq": (row[2] or "").strip() if row[2] else "",
+        "firme": (row[0] or "").strip() if row[0] else "",
+        "found": True,
+    }
+
 
 
 @router.post("", response_model=AvocatOut, status_code=201)

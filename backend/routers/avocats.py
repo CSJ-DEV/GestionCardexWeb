@@ -80,11 +80,18 @@ def list_avocats(
     db: Session = Depends(get_db),
     q: Optional[str] = Query(None),
     statut: Optional[str] = Query(None),
+    type_avocat: Optional[str] = Query(None, description="permanent | prive | all"),
     mega: Optional[bool] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
 ):
     query = db.query(Avocat).filter(Avocat.code.isnot(None))
+    # Filtre par type d'avocat selon le préfixe du code legacy :
+    #   A* = Permanent | P* ou N* = Pratique privée
+    if type_avocat == "permanent":
+        query = query.filter(Avocat.code.like("A%"))
+    elif type_avocat == "prive":
+        query = query.filter(or_(Avocat.code.like("P%"), Avocat.code.like("N%")))
     if q:
         # Recherche tolérante à l'ordre : on découpe en tokens (espaces / virgules).
         # Chaque token doit matcher au moins l'un de (code, nom, prénom) en LIKE.

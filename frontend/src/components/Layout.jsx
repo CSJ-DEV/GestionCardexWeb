@@ -134,7 +134,7 @@ export default function Layout() {
                 <header className="h-14 border-b border-slate-200 bg-white/80 backdrop-blur-xl sticky top-0 z-10 flex items-center justify-between px-8">
                     <div className="flex items-center gap-2 text-slate-500 text-sm">
                         <Search size={14} />
-                        <span className="overline">Quebec • Barreau</span>
+                        <span className="overline">Aide juridique du Québec</span>
                     </div>
                     <div className="text-xs text-slate-500">
                         {new Date().toLocaleDateString("fr-CA", { dateStyle: "full" })}

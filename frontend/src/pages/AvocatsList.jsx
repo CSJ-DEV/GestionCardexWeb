@@ -46,6 +46,7 @@ export default function AvocatsList() {
     const [loading, setLoading] = useState(true);
     const [q, setQ] = useState("");
     const [statut, setStatut] = useState("all");
+    const [typeAvocat, setTypeAvocat] = useState("all");
     const [editing, setEditing] = useState(null); // null = closed, {} = creating, {...avocat} = editing
     const [deleting, setDeleting] = useState(null);
 
@@ -55,6 +56,7 @@ export default function AvocatsList() {
             const params = { page, page_size: PAGE_SIZE };
             if (q.trim()) params.q = q.trim();
             if (statut !== "all") params.statut = statut;
+            if (typeAvocat !== "all") params.type_avocat = typeAvocat;
             const { data } = await api.get("/avocats", { params });
             setItems(data?.items || []);
             setTotal(data?.total || 0);
@@ -63,7 +65,7 @@ export default function AvocatsList() {
         } finally {
             setLoading(false);
         }
-    }, [page, q, statut]);
+    }, [page, q, statut, typeAvocat]);
 
     useEffect(() => {
         const id = setTimeout(fetchData, 300);
@@ -151,6 +153,22 @@ export default function AvocatsList() {
                         <SelectItem value="all">Tous les statuts</SelectItem>
                         <SelectItem value="actif">Actifs</SelectItem>
                         <SelectItem value="inactif">Inactifs</SelectItem>
+                    </SelectContent>
+                </Select>
+                <Select
+                    value={typeAvocat}
+                    onValueChange={(v) => {
+                        setPage(1);
+                        setTypeAvocat(v);
+                    }}
+                >
+                    <SelectTrigger className="w-[200px] h-10 rounded-md" data-testid="avocat-type-filter">
+                        <SelectValue placeholder="Type d'avocat" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Tous les types</SelectItem>
+                        <SelectItem value="permanent">Permanent (A)</SelectItem>
+                        <SelectItem value="prive">Pratique privée (P, N)</SelectItem>
                     </SelectContent>
                 </Select>
             </div>

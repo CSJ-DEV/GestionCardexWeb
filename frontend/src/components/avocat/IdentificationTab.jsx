@@ -10,8 +10,8 @@ import { DateInput } from "./DateInput";
 
 const STATUTS = [
     { k: "actif", l: "Actif" }, { k: "payable", l: "Payable" },
-    { k: "depodirect", l: "Dépôt direct" }, { k: "factweb", l: "Facturation web" },
-    { k: "confweb", l: "Confirmation web" }, { k: "mega", l: "Méga" },
+    { k: "factweb", l: "Facturation web" }, { k: "confweb", l: "Confirmation par courriel" },
+    { k: "depodirect", l: "Dépôt direct" }, { k: "mega", l: "Méga" },
     { k: "surveil", l: "En attente" },
 ];
 

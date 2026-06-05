@@ -35,9 +35,14 @@ def _conn_to_out(c: Connexion) -> dict:
             return ""
         return v.isoformat() if hasattr(v, "isoformat") else str(v)
 
+    def _s(v):
+        # Normalise les valeurs non-string (UUID, int, etc.) en chaîne.
+        # SQL Server peut retourner les colonnes UNIQUEIDENTIFIER en uuid.UUID.
+        return "" if v is None else str(v)
+
     return ConnexionOut(
-        id=c.id, name=c.name, type=c.type, server=c.server, port=c.port,
-        database=c.database or "", user=c.user or "", description=c.description or "",
+        id=_s(c.id), name=_s(c.name), type=_s(c.type), server=_s(c.server), port=c.port,
+        database=_s(c.database), user=_s(c.user), description=_s(c.description),
         has_password=bool(c.password_enc), is_primary=bool(c.is_primary),
         created_at=_iso(c.created_at), updated_at=_iso(c.updated_at),
     ).model_dump()

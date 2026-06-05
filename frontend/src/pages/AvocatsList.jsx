@@ -132,7 +132,7 @@ export default function AvocatsList() {
                             setPage(1);
                             setQ(e.target.value);
                         }}
-                        placeholder="Recherche par code, nom ou prénom…"
+                        placeholder="Recherche par code, nom, prénom — ex. « Tremblay Alain »"
                         className="pl-9 h-10 rounded-md"
                         data-testid="avocat-search-input"
                     />

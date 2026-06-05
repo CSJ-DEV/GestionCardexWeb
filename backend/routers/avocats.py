@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_, desc, asc, text
+from sqlalchemy import or_, and_, desc, asc, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -86,8 +86,20 @@ def list_avocats(
 ):
     query = db.query(Avocat).filter(Avocat.code.isnot(None))
     if q:
-        like = f"%{q}%"
-        query = query.filter(or_(Avocat.code.ilike(like), Avocat.nom.ilike(like), Avocat.prenom.ilike(like)))
+        # Recherche tolérante à l'ordre : on découpe en tokens (espaces / virgules).
+        # Chaque token doit matcher au moins l'un de (code, nom, prénom) en LIKE.
+        # → "Tremblay Alain", "Alain Tremblay", "Tremb Ala" donnent tous le même résultat.
+        # → "Tremblay" seul ou "P00963" seul fonctionne aussi (rétro-compat).
+        tokens = [t for t in q.replace(",", " ").split() if t.strip()]
+        if not tokens:
+            tokens = [q]  # garde-fou : si q n'a que des espaces/virgules
+        for tok in tokens:
+            like = f"%{tok}%"
+            query = query.filter(or_(
+                Avocat.code.ilike(like),
+                Avocat.nom.ilike(like),
+                Avocat.prenom.ilike(like),
+            ))
     if statut == "actif":
         query = query.filter(Avocat.actpass == "A")
     elif statut == "inactif":

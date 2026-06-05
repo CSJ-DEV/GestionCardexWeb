@@ -28,11 +28,18 @@ router = APIRouter(prefix="/connexions", tags=["connexions"])
 
 
 def _conn_to_out(c: Connexion) -> dict:
+    def _iso(v):
+        # `created_at` / `updated_at` peuvent être stockés en string (SQLite legacy)
+        # ou en datetime (SQL Server). On normalise toujours en ISO string.
+        if not v:
+            return ""
+        return v.isoformat() if hasattr(v, "isoformat") else str(v)
+
     return ConnexionOut(
         id=c.id, name=c.name, type=c.type, server=c.server, port=c.port,
         database=c.database or "", user=c.user or "", description=c.description or "",
         has_password=bool(c.password_enc), is_primary=bool(c.is_primary),
-        created_at=c.created_at or "", updated_at=c.updated_at or "",
+        created_at=_iso(c.created_at), updated_at=_iso(c.updated_at),
     ).model_dump()
 
 

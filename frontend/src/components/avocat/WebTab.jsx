@@ -247,7 +247,7 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
                         <Switch checked={!!form.factweb} onCheckedChange={(v) => upd("factweb", v)} disabled={readOnly} data-testid="web-factweb" />
                     </div>
                     <div className="flex items-center justify-between border border-slate-200 rounded-md px-3 py-2">
-                        <Label className="text-sm">Confirmation web</Label>
+                        <Label className="text-sm">Confirmation par courriel</Label>
                         <Switch checked={!!form.confweb} onCheckedChange={(v) => upd("confweb", v)} disabled={readOnly} data-testid="web-confweb" />
                     </div>
                 </div>

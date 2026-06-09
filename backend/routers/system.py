@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, EmailStr
 from sqlalchemy import text
 
 from database import describe_databases, engine, get_secondary_engine
@@ -27,7 +28,66 @@ def email_status(_=Depends(get_current_user)):
     """Indique si le service courriel ACS est configuré côté serveur.
     Accessible à tout utilisateur connecté (sert au frontend pour activer/masquer
     les fonctions d'envoi)."""
-    return {"enabled": mailer.is_email_enabled()}
+    return {
+        "enabled": mailer.is_email_enabled(),
+        "sender": os.getenv("ACS_SENDER_EMAIL", ""),
+        "has_connection_string": bool(os.getenv("ACS_CONNECTION_STRING")),
+    }
+
+
+class EmailTestIn(BaseModel):
+    to: EmailStr
+    subject: str | None = None
+    body: str | None = None
+
+
+@router.post("/email-test")
+def email_test(payload: EmailTestIn, _=Depends(require_role("ti"))):
+    """Envoie un courriel de test via ACS — TI uniquement.
+
+    Retourne le détail complet (succès ou erreur) pour faciliter le diagnostic
+    en cas de config ACS incorrecte (sender non vérifié, domaine non lié, etc.).
+    """
+    if not mailer.is_email_enabled():
+        return {
+            "ok": False,
+            "stage": "config",
+            "error": "ACS_CONNECTION_STRING ou ACS_SENDER_EMAIL manquant côté serveur.",
+            "has_connection_string": bool(os.getenv("ACS_CONNECTION_STRING")),
+            "sender": os.getenv("ACS_SENDER_EMAIL", ""),
+        }
+
+    subject = payload.subject or "Test courriel GestionCardex"
+    body_html = payload.body or (
+        "<p>Ceci est un courriel de test envoyé depuis GestionCardex Web.</p>"
+        "<p>Si vous recevez ce message, la configuration <b>Azure Communication "
+        "Services</b> est fonctionnelle.</p>"
+    )
+
+    try:
+        result = mailer.send_email(
+            to_email=payload.to,
+            subject=subject,
+            body_html=body_html,
+            body_text="Ceci est un courriel de test depuis GestionCardex Web.",
+        )
+        return {
+            "ok": True,
+            "stage": "sent",
+            "to": payload.to,
+            "sender": os.getenv("ACS_SENDER_EMAIL", ""),
+            "result": result,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {
+            "ok": False,
+            "stage": "send",
+            "to": payload.to,
+            "sender": os.getenv("ACS_SENDER_EMAIL", ""),
+            "error_type": type(e).__name__,
+            "error": str(e)[:1500],
+        }
+
 
 # Date de dernière modification du backend = horodatage du fichier le plus récent
 # parmi server.py, models.py et les routers. Représente la version déployée.

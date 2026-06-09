@@ -15,7 +15,7 @@ import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Database, Plus, Pencil, Trash2, CheckCircle2, XCircle, Lock, Server, Download, PlugZap, Activity } from "lucide-react";
+import { Database, Plus, Pencil, Trash2, CheckCircle2, XCircle, Lock, Server, Download, PlugZap, Activity, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 const TYPE_LABEL = { mongodb: "MongoDB", sqlserver: "SQL Server", sqlite: "SQLite (fichier local)" };
@@ -34,6 +34,12 @@ export default function Connexions() {
     // Diagnostic santé des 3 BDD
     const [health, setHealth] = useState(null);
     const [healthLoading, setHealthLoading] = useState(false);
+
+    // Test ACS Email
+    const [emailStatus, setEmailStatus] = useState(null);
+    const [emailTo, setEmailTo] = useState("");
+    const [emailSending, setEmailSending] = useState(false);
+    const [emailResult, setEmailResult] = useState(null);
 
     const fetchHealth = async () => {
         setHealthLoading(true);
@@ -60,7 +66,41 @@ export default function Connexions() {
         }
     };
 
-    useEffect(() => { fetchAll(); fetchHealth(); }, []);
+    const fetchEmailStatus = async () => {
+        try {
+            const { data } = await api.get("/system/email-status");
+            setEmailStatus(data);
+        } catch {
+            setEmailStatus(null);
+        }
+    };
+
+    useEffect(() => { fetchAll(); fetchHealth(); fetchEmailStatus(); }, []);
+
+    const onTestEmail = async () => {
+        if (!emailTo.trim()) {
+            toast.warning("Veuillez saisir une adresse destinataire");
+            return;
+        }
+        setEmailSending(true);
+        setEmailResult(null);
+        try {
+            const { data } = await api.post("/system/email-test", { to: emailTo.trim() });
+            setEmailResult(data);
+            if (data.ok) {
+                toast.success(`Courriel envoyé à ${data.to}`);
+            } else {
+                toast.error(`Échec à l'étape "${data.stage}" — voir les détails ci-dessous`,
+                    { duration: 15000 });
+            }
+        } catch (err) {
+            const msg = formatApiError(err.response?.data?.detail) || "Erreur inconnue";
+            setEmailResult({ ok: false, stage: "http", error: msg });
+            toast.error(msg);
+        } finally {
+            setEmailSending(false);
+        }
+    };
 
     const openNew = () => {
         setEditing({ ...EMPTY });
@@ -229,6 +269,77 @@ export default function Connexions() {
                                 </div>
                             </div>
                         ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Carte test ACS Email — TI uniquement */}
+            <div className="bg-white border border-slate-200 rounded-md p-4" data-testid="email-test-card">
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                        <Mail size={16} className={emailStatus?.enabled ? "text-emerald-600" : "text-slate-400"} />
+                        <h3 className="font-medium text-sm text-slate-900">Tester l&apos;envoi de courriel (ACS)</h3>
+                        {emailStatus && (
+                            <Badge className={`rounded-md text-[10px] ${emailStatus.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"} hover:bg-current`}>
+                                {emailStatus.enabled ? "Configuré" : "Non configuré"}
+                            </Badge>
+                        )}
+                    </div>
+                </div>
+                <div className="text-[11px] text-slate-500 mb-2 space-y-0.5">
+                    <div>
+                        <span className="text-slate-400">Expéditeur configuré : </span>
+                        <span className="font-mono text-slate-700">
+                            {emailStatus?.sender || <em className="text-slate-400">(ACS_SENDER_EMAIL non défini)</em>}
+                        </span>
+                    </div>
+                    <div>
+                        <span className="text-slate-400">Connection string : </span>
+                        <span className={emailStatus?.has_connection_string ? "text-emerald-700" : "text-red-600"}>
+                            {emailStatus?.has_connection_string ? "présente" : "absente"}
+                        </span>
+                    </div>
+                </div>
+                <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                        <Label className="text-xs font-medium text-slate-700">Adresse destinataire</Label>
+                        <Input
+                            type="email"
+                            value={emailTo}
+                            onChange={(e) => setEmailTo(e.target.value)}
+                            placeholder="vous@exemple.com"
+                            className="rounded-md mt-1"
+                            data-testid="email-test-to"
+                            onKeyDown={(e) => { if (e.key === "Enter") onTestEmail(); }}
+                        />
+                    </div>
+                    <Button
+                        type="button"
+                        onClick={onTestEmail}
+                        disabled={emailSending || !emailStatus?.enabled}
+                        className="rounded-md bg-[#0033A0] hover:bg-[#002277] text-white"
+                        data-testid="email-test-send-btn"
+                    >
+                        <Mail size={14} className="mr-2" />
+                        {emailSending ? "Envoi…" : "Envoyer un test"}
+                    </Button>
+                </div>
+                {emailResult && (
+                    <div className={`mt-3 rounded-md border p-3 text-xs ${emailResult.ok ? "border-emerald-200 bg-emerald-50/50" : "border-red-200 bg-red-50/50"}`}
+                         data-testid="email-test-result">
+                        <div className="flex items-center gap-2 mb-1">
+                            {emailResult.ok ? (
+                                <CheckCircle2 size={14} className="text-emerald-600" />
+                            ) : (
+                                <XCircle size={14} className="text-red-600" />
+                            )}
+                            <span className="font-medium">
+                                {emailResult.ok ? "Succès" : `Échec — étape : ${emailResult.stage}`}
+                            </span>
+                        </div>
+                        <pre className="text-[10px] font-mono whitespace-pre-wrap break-all text-slate-700 max-h-48 overflow-auto">
+{JSON.stringify(emailResult, null, 2)}
+                        </pre>
                     </div>
                 )}
             </div>

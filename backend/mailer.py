@@ -444,11 +444,26 @@ def send_password_reset_email(
     avocat_prenom: str,
     motpasse1: str,
     motpasse2: str,
+    adresse: Optional[Any] = None,
+    config: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Compose et envoie le courriel de réinit avec PDF en pièce jointe."""
-    pdf = generate_password_reset_pdf(avocat_code, avocat_nom, avocat_prenom,
-                                      motpasse1, motpasse2)
-    attachment = build_pdf_attachment(pdf, f"mots_de_passe_{avocat_code}.pdf")
+    """Compose et envoie le courriel de réinit avec la lettre officielle CSJ en PJ.
+
+    Le PDF joint est IDENTIQUE à celui produit par `Aperçu de la lettre` côté
+    interface : même mise en page (logo, adresse, objet, corps, signature),
+    générée via `generate_letter_pdf`.
+    """
+    pdf = generate_letter_pdf(
+        avocat_code=avocat_code,
+        avocat_nom=avocat_nom,
+        avocat_prenom=avocat_prenom,
+        motpasse1=motpasse1,
+        motpasse2=motpasse2,
+        adresse=adresse,
+        config=config,
+    )
+    filename = f"lettre_{avocat_code}_{now_local().strftime('%Y%m%d')}.pdf"
+    attachment = build_pdf_attachment(pdf, filename)
 
     full_name = f"{avocat_prenom} {avocat_nom}".strip()
     subject = "Réinitialisation de vos mots de passe — Aide juridique du Québec"
@@ -462,8 +477,8 @@ def send_password_reset_email(
       été réinitialisés à votre demande.
     </p>
     <p>
-      Vous trouverez en pièce jointe (PDF) vos nouveaux identifiants
-      (Mot de passe 1 et Mot de passe 2).
+      Vous trouverez en pièce jointe (PDF) la lettre officielle contenant votre
+      code d'utilisateur et vos nouveaux mots de passe.
     </p>
     <p style="color:#b00; font-weight: bold;">
       Pour des raisons de sécurité, conservez ce document en lieu sûr et ne le
@@ -479,7 +494,7 @@ def send_password_reset_email(
     text = (
         f"Bonjour Me {avocat_nom},\n\n"
         "Vos mots de passe Web GestionCardex ont été réinitialisés.\n"
-        "Veuillez consulter le PDF joint pour vos nouveaux identifiants.\n\n"
+        "Veuillez consulter le PDF joint pour la lettre officielle.\n\n"
         "Conservez ce document en lieu sûr. Ne le transférez pas par courriel.\n\n"
         "— Commission des services juridiques"
     )

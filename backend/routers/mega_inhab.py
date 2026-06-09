@@ -10,10 +10,17 @@ from sqlalchemy.orm import Session
 
 from audit import write_audit, mega_to_dict, inhab_to_dict
 from database import get_db
-from models import Avocat, Adresse, InfoMega, InfoDistrict, Inhpra, bool_to_yn
+from models import Avocat, Adresse, InfoMega, InfoDistrict, Inhpra, LetterConfig, bool_to_yn
 from schemas import InfoMegaIn, InhabIn
 from security import get_current_user, now_local, require_role
 import mailer
+
+
+class _Snap:
+    """Conteneur léger pour passer des données détachées de SQLAlchemy à une
+    tâche background (sans risque d'accès post-close à la session)."""
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
 
 
 def _parse_date(value):
@@ -224,10 +231,18 @@ class ResetPasswordsIn(BaseModel):
 
 
 def _send_pwd_email_task(to_email: str, code: str, nom: str, prenom: str,
-                        mp1: str, mp2: str, db_url_hint: str = ""):
-    """Tâche background — best-effort, ne lève jamais."""
+                        mp1: str, mp2: str,
+                        adresse_snap=None, config_snap=None):
+    """Tâche background — best-effort, ne lève jamais.
+
+    Reçoit `adresse_snap` et `config_snap` (objets `_Snap` détachés de SQLAlchemy)
+    pour générer la même lettre PDF que l'aperçu côté UI.
+    """
     try:
-        mailer.send_password_reset_email(to_email, code, nom, prenom, mp1, mp2)
+        mailer.send_password_reset_email(
+            to_email, code, nom, prenom, mp1, mp2,
+            adresse=adresse_snap, config=config_snap,
+        )
     except Exception as e:
         # Logger uniquement — le reset principal a déjà commit en BDD.
         import logging
@@ -272,18 +287,39 @@ def reset_passwords(avocat_id: str,
         else:
             # Détermine l'adresse cible : payload > adresse courante de l'avocat
             target = (payload.email or "").strip().lower() or None
-            if not target and avo.adrcour:
+            adr = None
+            if avo.adrcour:
                 adr = db.query(Adresse).filter_by(noseq=avo.adrcour).first()
-                if adr and adr.adremail:
-                    target = adr.adremail.strip().lower()
+            if not target and adr and adr.adremail:
+                target = adr.adremail.strip().lower()
             if not target:
                 email_error = "Aucune adresse courriel disponible pour cet avocat."
             else:
+                # Snapshot des données nécessaires à la lettre PDF (détaché de la session)
+                adresse_snap = None
+                if adr is not None:
+                    adresse_snap = _Snap(
+                        address=adr.address or "",
+                        ville=adr.ville or "",
+                        province=adr.province or "",
+                        codepostal=adr.codepostal or "",
+                    )
+                config = db.query(LetterConfig).filter_by(id=1).first()
+                config_snap = None
+                if config is not None:
+                    config_snap = _Snap(
+                        signataire_nom=config.signataire_nom or "",
+                        signataire_titre=config.signataire_titre or "",
+                        signataire_affiliation=config.signataire_affiliation or "",
+                        signature_image_base64=config.signature_image_base64,
+                        signature_mime=config.signature_mime,
+                    )
                 background_tasks.add_task(
                     _send_pwd_email_task,
                     to_email=target,
                     code=avo.code, nom=avo.nom or "", prenom=avo.prenom or "",
                     mp1=mp1, mp2=mp2,
+                    adresse_snap=adresse_snap, config_snap=config_snap,
                 )
                 email_sent_to = target
                 write_audit(db, avocat_id, "pwd_email", user.get("email", ""),
@@ -401,7 +437,8 @@ def export_audit_csv(avocat_id: str, user: dict = Depends(require_role("admin"))
         w = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
         w.writerow(["Date", "Heure", "Action", "Code action", "Utilisateur", "Résumé"])
         yield buf.getvalue().encode("utf-8")
-        buf.seek(0); buf.truncate(0)
+        buf.seek(0)
+        buf.truncate(0)
 
         q = (db.query(AuditLog).filter_by(avocat_id=avocat_id)
                               .order_by(desc(AuditLog.timestamp))
@@ -427,7 +464,8 @@ def export_audit_csv(avocat_id: str, user: dict = Depends(require_role("admin"))
             count += 1
             if count % 100 == 0:
                 yield buf.getvalue().encode("utf-8")
-                buf.seek(0); buf.truncate(0)
+                buf.seek(0)
+                buf.truncate(0)
         if buf.tell():
             yield buf.getvalue().encode("utf-8")
 

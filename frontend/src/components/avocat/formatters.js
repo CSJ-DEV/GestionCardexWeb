@@ -26,6 +26,7 @@ export const formatTelephone = (raw) => {
 export const isValidTelephone = (tel) => {
     if (!tel) return true; // facultatif
     const d = tel.replace(/\D/g, "");
+    if (d.length === 0) return true;  // que des espaces / caractères non-chiffres → traité comme vide
     return d.length === 10;
 };
 

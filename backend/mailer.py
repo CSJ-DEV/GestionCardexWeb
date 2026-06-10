@@ -446,12 +446,18 @@ def send_password_reset_email(
     motpasse2: str,
     adresse: Optional[Any] = None,
     config: Optional[Any] = None,
+    email_subject: Optional[str] = None,
+    email_body: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Compose et envoie le courriel de réinit avec la lettre officielle CSJ en PJ.
 
     Le PDF joint est IDENTIQUE à celui produit par `Aperçu de la lettre` côté
     interface : même mise en page (logo, adresse, objet, corps, signature),
     générée via `generate_letter_pdf`.
+
+    `email_subject` et `email_body` (optionnels) permettent de personnaliser
+    le courriel via la page Paramètres → Lettre signataire. Placeholders
+    supportés dans les 2 chaînes : {nom}, {prenom}, {code}.
     """
     pdf = generate_letter_pdf(
         avocat_code=avocat_code,
@@ -466,9 +472,44 @@ def send_password_reset_email(
     attachment = build_pdf_attachment(pdf, filename)
 
     full_name = f"{avocat_prenom} {avocat_nom}".strip()
-    subject = "Réinitialisation de vos mots de passe — Aide juridique du Québec"
 
-    html = f"""<!DOCTYPE html>
+    placeholders = {
+        "nom": avocat_nom or "",
+        "prenom": avocat_prenom or "",
+        "code": avocat_code or "",
+    }
+
+    def _fmt(s: str) -> str:
+        try:
+            return s.format(**placeholders)
+        except Exception:  # noqa: BLE001
+            # Tolère les accolades non interpolées (utilisateur tape "{x}")
+            return s
+
+    subject = _fmt(email_subject) if email_subject else (
+        "Réinitialisation de vos mots de passe — Aide juridique du Québec"
+    )
+
+    # Corps : si email_body fourni → texte brut converti en HTML simple
+    # (chaque \n devient <br/>). Sinon, fallback au template HTML stylé existant.
+    if email_body:
+        body_text = _fmt(email_body)
+        html_lines = body_text.replace("\n", "<br/>")
+        body_html = (
+            '<!DOCTYPE html><html lang="fr"><body '
+            'style="font-family: Arial, sans-serif; color:#222; line-height:1.5;">'
+            f'<div>{html_lines}</div>'
+            '</body></html>'
+        )
+    else:
+        body_text = (
+            f"Bonjour Me {avocat_nom},\n\n"
+            "Vos mots de passe Web GestionCardex ont été réinitialisés.\n"
+            "Veuillez consulter le PDF joint pour la lettre officielle.\n\n"
+            "Conservez ce document en lieu sûr. Ne le transférez pas par courriel.\n\n"
+            "— Commission des services juridiques"
+        )
+        body_html = f"""<!DOCTYPE html>
 <html lang="fr">
   <body style="font-family: Arial, sans-serif; color:#222; line-height:1.5;">
     <p>Bonjour Me {avocat_nom},</p>
@@ -491,19 +532,11 @@ def send_password_reset_email(
   </body>
 </html>"""
 
-    text = (
-        f"Bonjour Me {avocat_nom},\n\n"
-        "Vos mots de passe Web GestionCardex ont été réinitialisés.\n"
-        "Veuillez consulter le PDF joint pour la lettre officielle.\n\n"
-        "Conservez ce document en lieu sûr. Ne le transférez pas par courriel.\n\n"
-        "— Commission des services juridiques"
-    )
-
     return send_email(
         to_email=to_email,
         subject=subject,
-        body_html=html,
-        body_text=text,
+        body_html=body_html,
+        body_text=body_text,
         attachments=[attachment],
         display_name=full_name or None,
     )

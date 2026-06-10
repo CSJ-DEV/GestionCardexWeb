@@ -14,6 +14,7 @@ from models import Avocat, Adresse, InfoMega, InfoDistrict, Inhpra, LetterConfig
 from schemas import InfoMegaIn, InhabIn
 from security import get_current_user, now_local, require_role
 import mailer
+from routers.letters import _get_email_template_raw
 
 
 class _Snap:
@@ -232,7 +233,9 @@ class ResetPasswordsIn(BaseModel):
 
 def _send_pwd_email_task(to_email: str, code: str, nom: str, prenom: str,
                         mp1: str, mp2: str,
-                        adresse_snap=None, config_snap=None):
+                        adresse_snap=None, config_snap=None,
+                        email_subject: str | None = None,
+                        email_body: str | None = None):
     """Tâche background — best-effort, ne lève jamais.
 
     Reçoit `adresse_snap` et `config_snap` (objets `_Snap` détachés de SQLAlchemy)
@@ -242,6 +245,7 @@ def _send_pwd_email_task(to_email: str, code: str, nom: str, prenom: str,
         mailer.send_password_reset_email(
             to_email, code, nom, prenom, mp1, mp2,
             adresse=adresse_snap, config=config_snap,
+            email_subject=email_subject, email_body=email_body,
         )
     except Exception as e:
         # Logger uniquement — le reset principal a déjà commit en BDD.
@@ -314,12 +318,15 @@ def reset_passwords(avocat_id: str,
                         signature_image_base64=config.signature_image_base64,
                         signature_mime=config.signature_mime,
                     )
+                # Template courriel (sujet + corps) configuré par TI via /letter-config
+                email_subject, email_body = _get_email_template_raw(db)
                 background_tasks.add_task(
                     _send_pwd_email_task,
                     to_email=target,
                     code=avo.code, nom=avo.nom or "", prenom=avo.prenom or "",
                     mp1=mp1, mp2=mp2,
                     adresse_snap=adresse_snap, config_snap=config_snap,
+                    email_subject=email_subject, email_body=email_body,
                 )
                 email_sent_to = target
                 write_audit(db, avocat_id, "pwd_email", user.get("email", ""),
@@ -430,12 +437,16 @@ def send_letter(avocat_id: str,
             signature_mime=config.signature_mime,
         )
 
+    # Template courriel (sujet + corps) configuré par TI via /letter-config
+    email_subject, email_body = _get_email_template_raw(db)
+
     background_tasks.add_task(
         _send_pwd_email_task,
         to_email=target,
         code=avo.code, nom=avo.nom or "", prenom=avo.prenom or "",
         mp1=avo.motpasse1 or "", mp2=avo.motpasse2 or "",
         adresse_snap=adresse_snap, config_snap=config_snap,
+        email_subject=email_subject, email_body=email_body,
     )
 
     write_audit(db, avocat_id, "pwd_email", user.get("email", ""),

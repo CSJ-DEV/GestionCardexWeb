@@ -14,6 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from audit import write_audit
@@ -23,6 +24,66 @@ from security import now_local, require_role
 import mailer
 
 logger = logging.getLogger("gestioncardex.letters")
+
+
+# ============================================================
+#  Template de courriel (sujet + corps HTML) — stocké en BDD
+# ============================================================
+# Valeurs PAR DÉFAUT utilisées tant que le DBA n'a pas exécuté l'ALTER
+# TABLE ajoutant les colonnes email_subject / email_body. Le code
+# fonctionne dans les 2 cas via raw SQL avec try/except.
+DEFAULT_EMAIL_SUBJECT = (
+    "Réinitialisation de vos mots de passe — Aide juridique du Québec"
+)
+DEFAULT_EMAIL_BODY = (
+    "Bonjour Me {nom},\n\n"
+    "Vos mots de passe Web de l'application GestionCardex ont été "
+    "réinitialisés à votre demande.\n\n"
+    "Vous trouverez en pièce jointe (PDF) vos nouveaux identifiants "
+    "(Mot de passe 1 et Mot de passe 2).\n\n"
+    "Pour des raisons de sécurité, conservez ce document en lieu sûr et "
+    "ne le transférez pas par courriel.\n\n"
+    "Ceci est un message automatique — merci de ne pas y répondre."
+)
+
+
+def _get_email_template_raw(db: Session) -> tuple[str, str]:
+    """Lit (subject, body) depuis LetterConfig via raw SQL.
+
+    Retourne les valeurs par défaut si :
+      - les colonnes n'existent pas encore (prod sans ALTER) → SQL error
+      - les colonnes sont NULL ou vides
+    """
+    try:
+        row = db.execute(
+            text("SELECT email_subject, email_body FROM LetterConfig WHERE id = 1")
+        ).first()
+        if row is not None:
+            return (row[0] or DEFAULT_EMAIL_SUBJECT, row[1] or DEFAULT_EMAIL_BODY)
+    except Exception as e:  # noqa: BLE001
+        logger.info("Colonnes email_subject/email_body absentes (fallback) : %s", e)
+    return (DEFAULT_EMAIL_SUBJECT, DEFAULT_EMAIL_BODY)
+
+
+def _set_email_template_raw(db: Session, subject: str, body: str) -> bool:
+    """Écrit (subject, body) dans LetterConfig via raw SQL.
+
+    Retourne True si succès, False si les colonnes n'existent pas encore.
+    Ne lève pas — l'appelant décide quoi faire de l'échec.
+    """
+    try:
+        db.execute(
+            text(
+                "UPDATE LetterConfig "
+                "SET email_subject = :s, email_body = :b "
+                "WHERE id = 1"
+            ),
+            {"s": subject, "b": body},
+        )
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Écriture email_subject/email_body impossible : %s", e)
+        return False
 
 # Routes /avocats/{code}/letter-preview (mêmes droits que le reset)
 router_avocat = APIRouter(prefix="/avocats", tags=["letters"])
@@ -83,6 +144,8 @@ class LetterConfigOut(BaseModel):
     signataire_affiliation: str
     has_signature: bool
     signature_mime: Optional[str] = None
+    email_subject: str
+    email_body: str
     updated_at: Optional[str] = None
     updated_by: Optional[str] = None
 
@@ -95,15 +158,21 @@ class LetterConfigIn(BaseModel):
     signature_image_base64: Optional[str] = None
     signature_mime: Optional[str] = None  # "image/png" ou "image/jpeg"
     clear_signature: bool = False  # si True : efface l'image existante
+    # Template de courriel (optionnel — défaut si absent ou colonnes non créées)
+    email_subject: Optional[str] = None
+    email_body: Optional[str] = None
 
 
-def _serialize_config(c: LetterConfig) -> LetterConfigOut:
+def _serialize_config(c: LetterConfig, db: Session) -> LetterConfigOut:
+    subject, body = _get_email_template_raw(db)
     return LetterConfigOut(
         signataire_nom=c.signataire_nom or "",
         signataire_titre=c.signataire_titre or "",
         signataire_affiliation=c.signataire_affiliation or "",
         has_signature=bool(c.signature_image_base64),
         signature_mime=c.signature_mime,
+        email_subject=subject,
+        email_body=body,
         updated_at=c.updated_at.isoformat() if c.updated_at else None,
         updated_by=c.updated_by,
     )
@@ -129,7 +198,7 @@ def get_letter_config(
         db.add(c)
         db.commit()
         db.refresh(c)
-    return _serialize_config(c)
+    return _serialize_config(c, db)
 
 
 @router_config.get("/signature-image")
@@ -192,4 +261,18 @@ def update_letter_config(
     c.updated_by = user.get("email", "")
     db.commit()
     db.refresh(c)
-    return _serialize_config(c)
+
+    # Template email — écriture séparée (peut échouer si colonnes absentes)
+    if payload.email_subject is not None or payload.email_body is not None:
+        subject = (payload.email_subject or DEFAULT_EMAIL_SUBJECT).strip()
+        body = (payload.email_body or DEFAULT_EMAIL_BODY).strip()
+        if not _set_email_template_raw(db, subject, body):
+            # En prod sans ALTER : ne bloque pas la sauvegarde du signataire
+            logger.warning(
+                "Sauvegarde signataire OK mais template email NON sauvegardé "
+                "(colonnes email_subject/email_body absentes)."
+            )
+        else:
+            db.commit()
+
+    return _serialize_config(c, db)

@@ -220,9 +220,22 @@ def entra_callback(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/status")
 def entra_status(user=Depends(lambda: None)):
-    """Endpoint public — indique si l'authentification Microsoft est activée côté serveur."""
+    """Endpoint public — indique l'état de l'authentification côté serveur.
+
+    Champs retournés :
+      - `enabled` : True si Entra ID est configuré (variables ENTRA_* présentes)
+      - `tenant_id` : tenant Entra (debug)
+      - `local_login_enabled` : True si le formulaire courriel/mot de passe local
+        est autorisé. False en prod Azure (variable DISABLE_LOCAL_LOGIN=true) où
+        seule l'auth Microsoft doit être utilisée.
+    """
     enabled = bool(TENANT_ID and CLIENT_ID and CLIENT_SECRET and REDIRECT_URI)
-    return {"enabled": enabled, "tenant_id": TENANT_ID if enabled else None}
+    local_disabled = os.environ.get("DISABLE_LOCAL_LOGIN", "").strip().lower() in ("1", "true", "yes")
+    return {
+        "enabled": enabled,
+        "tenant_id": TENANT_ID if enabled else None,
+        "local_login_enabled": not local_disabled,
+    }
 
 
 # ----- Helpers -----

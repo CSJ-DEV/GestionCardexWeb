@@ -1,6 +1,8 @@
 """Routes d'authentification : login, logout, /me, refresh, change-password."""
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
@@ -18,8 +20,26 @@ import jwt
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _local_login_disabled() -> bool:
+    """True si la variable d'env DISABLE_LOCAL_LOGIN est activée (prod Azure).
+
+    Bloque l'usage du formulaire courriel/mot de passe → seuls les comptes Entra ID
+    peuvent se connecter. La variable est volontairement absente en dev (Emergent,
+    local) pour permettre le développement avec les comptes admin/ti seed.
+    """
+    return os.environ.get("DISABLE_LOCAL_LOGIN", "").strip().lower() in ("1", "true", "yes")
+
+
 @router.post("/login", response_model=UserOut)
 def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
+    # Blocage global du login local en production Azure
+    if _local_login_disabled():
+        raise HTTPException(
+            status_code=403,
+            detail="La connexion par mot de passe est désactivée sur cet environnement. "
+                   "Veuillez utiliser « Se connecter avec Microsoft ».",
+        )
+
     email = payload.email.lower()
     u = db.query(AppUser).filter_by(email=email).first()
     if not u or is_sso_user(u) or not verify_password(payload.password, u.password_hash):

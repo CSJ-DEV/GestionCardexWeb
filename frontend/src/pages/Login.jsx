@@ -18,12 +18,22 @@ export default function Login() {
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [entraEnabled, setEntraEnabled] = useState(false);
+    const [localLoginEnabled, setLocalLoginEnabled] = useState(true);
 
-    // Détecte si l'authentification Microsoft est activée côté backend.
+    // Détecte si l'authentification Microsoft est activée côté backend, et si
+    // le login local par courriel/mot de passe est autorisé (désactivé en prod Azure).
     useEffect(() => {
         axios.get(`${API}/auth/entra/status`)
-            .then((res) => setEntraEnabled(Boolean(res.data?.enabled)))
-            .catch(() => setEntraEnabled(false));
+            .then((res) => {
+                setEntraEnabled(Boolean(res.data?.enabled));
+                // Par défaut on autorise le local login (dev) ; on ne le bloque que
+                // si le backend l'indique explicitement (DISABLE_LOCAL_LOGIN=true).
+                setLocalLoginEnabled(res.data?.local_login_enabled !== false);
+            })
+            .catch(() => {
+                setEntraEnabled(false);
+                setLocalLoginEnabled(true);
+            });
     }, []);
 
     // Récupère un éventuel message d'erreur renvoyé par le flow OAuth.
@@ -88,14 +98,24 @@ export default function Login() {
                             <MicrosoftLogo />
                             Se connecter avec Microsoft
                         </Button>
-                        <div className="flex items-center gap-3 my-4">
-                            <div className="flex-1 h-px bg-slate-200" />
-                            <span className="text-xs text-slate-500 uppercase tracking-wider">ou</span>
-                            <div className="flex-1 h-px bg-slate-200" />
-                        </div>
+                        {localLoginEnabled && (
+                            <div className="flex items-center gap-3 my-4">
+                                <div className="flex-1 h-px bg-slate-200" />
+                                <span className="text-xs text-slate-500 uppercase tracking-wider">ou</span>
+                                <div className="flex-1 h-px bg-slate-200" />
+                            </div>
+                        )}
                     </>
                 )}
 
+                {!localLoginEnabled && entraEnabled && (
+                    <p className="text-xs text-slate-500 text-center mt-4" data-testid="login-local-disabled-msg">
+                        La connexion par mot de passe est désactivée sur cet environnement.
+                        Veuillez utiliser votre compte Microsoft.
+                    </p>
+                )}
+
+                {localLoginEnabled && (
                 <form onSubmit={onSubmit} className="space-y-5" data-testid="login-form">
                     <div className="space-y-1.5">
                         <Label htmlFor="email" className="text-xs font-medium text-slate-700">
@@ -143,6 +163,16 @@ export default function Login() {
                         {submitting ? "Connexion…" : "Se connecter"}
                     </Button>
                 </form>
+                )}
+
+                {error && !localLoginEnabled && (
+                    <div
+                        className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mt-4"
+                        data-testid="login-error"
+                    >
+                        {error}
+                    </div>
+                )}
 
                 <div className="mt-10 text-xs text-slate-500 text-center">
                     © {new Date().getFullYear()} GestionCardex — Édition Web

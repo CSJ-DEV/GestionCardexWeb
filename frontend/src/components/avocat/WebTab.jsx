@@ -73,6 +73,11 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
     const defaultEmail = (avocat?.adresse?.email || "").trim();
     const [emailTarget, setEmailTarget] = useState(defaultEmail);
 
+    // Dialog d'envoi de la lettre seule (sans reset)
+    const [sendLetterOpen, setSendLetterOpen] = useState(false);
+    const [sendLetterTarget, setSendLetterTarget] = useState(defaultEmail);
+    const [sendingLetter, setSendingLetter] = useState(false);
+
     // Vérifie si le service ACS est configuré côté serveur
     useEffect(() => {
         api.get("/system/email-status")
@@ -84,6 +89,35 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
         setEmailTarget(defaultEmail);
         setSendByEmail(emailEnabled && Boolean(defaultEmail));
         setResetDialogOpen(true);
+    };
+
+    const openSendLetterDialog = () => {
+        setSendLetterTarget(defaultEmail);
+        setSendLetterOpen(true);
+    };
+
+    const onConfirmSendLetter = async () => {
+        if (!sendLetterTarget.trim()) {
+            toast.warning("Veuillez saisir une adresse courriel");
+            return;
+        }
+        setSendingLetter(true);
+        try {
+            const { data } = await api.post(`/avocats/${avocatId}/send-letter`, {
+                email: sendLetterTarget.trim(),
+            });
+            if (data.ok) {
+                toast.success(`Courriel programmé vers ${data.email_sent_to}`,
+                    { duration: 8000 });
+                setSendLetterOpen(false);
+            } else {
+                toast.error(data.email_error || "Échec de l'envoi");
+            }
+        } catch (err) {
+            toast.error(formatApiError(err.response?.data?.detail) || "Erreur lors de l'envoi");
+        } finally {
+            setSendingLetter(false);
+        }
     };
 
     // ---- Aperçu de la lettre officielle (PDF dans un nouvel onglet) ----
@@ -312,6 +346,20 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
                                 <Button
                                     type="button"
                                     variant="outline"
+                                    onClick={openSendLetterDialog}
+                                    disabled={busy || !emailEnabled}
+                                    className="rounded-md"
+                                    data-testid="web-send-letter"
+                                    title={emailEnabled
+                                        ? "Envoyer la lettre par courriel à l'avocat (PDF joint)"
+                                        : "Service courriel non configuré"}
+                                >
+                                    <Mail className="w-4 h-4 mr-2" />
+                                    Envoyer par courriel
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
                                     onClick={clearPasswords}
                                     disabled={busy}
                                     className="rounded-md"
@@ -410,6 +458,71 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
                             data-testid="reset-pwd-confirm"
                         >
                             {sendByEmail && emailEnabled ? "Réinitialiser et envoyer" : "Réinitialiser"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Dialog d'envoi de la lettre par courriel (sans reset) */}
+            <Dialog open={sendLetterOpen} onOpenChange={(open) => {
+                if (!sendingLetter) setSendLetterOpen(open);
+            }}>
+                <DialogContent className="sm:max-w-md" data-testid="send-letter-dialog">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Mail className="w-5 h-5 text-[#0033A0]" />
+                            Envoyer la lettre par courriel
+                        </DialogTitle>
+                        <DialogDescription>
+                            La lettre officielle (PDF identique à l&apos;aperçu) sera envoyée à
+                            l&apos;avocat avec ses mots de passe actuels en pièce jointe.
+                            <br />
+                            <span className="text-amber-700 text-xs">
+                                Aucune réinitialisation des mots de passe ne sera effectuée.
+                            </span>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 py-2">
+                        <Field label="Adresse courriel du destinataire">
+                            <Input
+                                type="email"
+                                value={sendLetterTarget}
+                                onChange={(e) => setSendLetterTarget(e.target.value)}
+                                placeholder="avocat@exemple.com"
+                                className="rounded-md"
+                                data-testid="send-letter-email-input"
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") onConfirmSendLetter();
+                                }}
+                            />
+                        </Field>
+                        <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md p-2">
+                            <div className="font-medium text-slate-700 mb-1">Aperçu du courriel</div>
+                            <div className="text-slate-600">
+                                <div><span className="text-slate-500">Sujet :</span> Réinitialisation de vos mots de passe — Aide juridique du Québec</div>
+                                <div className="mt-1"><span className="text-slate-500">Corps :</span> Bonjour Me {avocat?.nom || "…"}, vos mots de passe Web GestionCardex ont été réinitialisés à votre demande. PDF joint.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter className="gap-2">
+                        <Button
+                            type="button" variant="outline"
+                            onClick={() => setSendLetterOpen(false)}
+                            disabled={sendingLetter}
+                            className="rounded-md"
+                            data-testid="send-letter-cancel"
+                        >
+                            Annuler
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={onConfirmSendLetter}
+                            disabled={sendingLetter || !sendLetterTarget.trim()}
+                            className="rounded-md bg-[#0033A0] hover:bg-[#002277] text-white"
+                            data-testid="send-letter-confirm"
+                        >
+                            <Mail className="w-4 h-4 mr-2" />
+                            {sendingLetter ? "Envoi…" : "Envoyer le courriel"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

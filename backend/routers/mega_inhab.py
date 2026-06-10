@@ -358,6 +358,96 @@ def clear_passwords(avocat_id: str,
     return {"ok": True}
 
 
+class SendLetterIn(BaseModel):
+    """Payload pour l'envoi de la lettre par courriel SANS reset des mots de passe.
+
+    Si `email` est omis, on utilise l'adresse courante de l'avocat.
+    """
+    email: EmailStr | None = None
+
+
+@router.post("/{avocat_id}/send-letter")
+def send_letter(avocat_id: str,
+                payload: SendLetterIn,
+                background_tasks: BackgroundTasks,
+                user: dict = Depends(require_role("admin", "editeur")),
+                db: Session = Depends(get_db)):
+    """Envoie la lettre officielle (PDF) par courriel à l'avocat.
+
+    - **Ne réinitialise PAS** les mots de passe — utilise ceux déjà en BDD.
+    - Joint le même PDF que le bouton « Aperçu de la lettre ».
+    - Sujet : « Réinitialisation de vos mots de passe — Aide juridique du Québec ».
+    - Corps : message confirmant la mise à disposition de la lettre.
+
+    Retourne `{ok, email_sent_to, email_error}`. L'envoi est en background — un
+    `ok=True` signifie « programmé », pas « livré ».
+    """
+    if not mailer.is_email_enabled():
+        raise HTTPException(status_code=400,
+                            detail="Service courriel non configuré sur le serveur.")
+
+    avo = db.query(Avocat).filter_by(code=avocat_id).first()
+    if not avo:
+        raise HTTPException(status_code=404, detail="Avocat introuvable")
+
+    # Au moins un des 2 mots de passe doit exister pour avoir une lettre utile
+    if not (avo.motpasse1 or avo.motpasse2):
+        raise HTTPException(
+            status_code=400,
+            detail="Aucun mot de passe défini pour cet avocat. Réinitialisez d'abord les mots de passe.",
+        )
+
+    # Détermine l'adresse cible : payload > adresse courante de l'avocat
+    target = (payload.email or "").strip().lower() or None
+    adr = None
+    if avo.adrcour:
+        adr = db.query(Adresse).filter_by(noseq=avo.adrcour).first()
+    if not target and adr and adr.adremail:
+        target = adr.adremail.strip().lower()
+    if not target:
+        raise HTTPException(
+            status_code=400,
+            detail="Aucune adresse courriel disponible pour cet avocat.",
+        )
+
+    # Snapshot des données nécessaires à la lettre PDF (détaché de la session)
+    adresse_snap = None
+    if adr is not None:
+        adresse_snap = _Snap(
+            address=adr.address or "",
+            ville=adr.ville or "",
+            province=adr.province or "",
+            codepostal=adr.codepostal or "",
+        )
+    config = db.query(LetterConfig).filter_by(id=1).first()
+    config_snap = None
+    if config is not None:
+        config_snap = _Snap(
+            signataire_nom=config.signataire_nom or "",
+            signataire_titre=config.signataire_titre or "",
+            signataire_affiliation=config.signataire_affiliation or "",
+            signature_image_base64=config.signature_image_base64,
+            signature_mime=config.signature_mime,
+        )
+
+    background_tasks.add_task(
+        _send_pwd_email_task,
+        to_email=target,
+        code=avo.code, nom=avo.nom or "", prenom=avo.prenom or "",
+        mp1=avo.motpasse1 or "", mp2=avo.motpasse2 or "",
+        adresse_snap=adresse_snap, config_snap=config_snap,
+    )
+
+    write_audit(db, avocat_id, "pwd_email", user.get("email", ""),
+                f"Envoi de la lettre programmé vers {target}")
+
+    return {
+        "ok": True,
+        "email_sent_to": target,
+        "email_error": None,
+    }
+
+
 @router.get("/{avocat_id}/passwords")
 def get_passwords(avocat_id: str,
                   user: dict = Depends(require_role("ti")),

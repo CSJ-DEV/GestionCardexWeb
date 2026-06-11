@@ -12,7 +12,7 @@ import { useAuth } from "@/context/AuthContext";
 
 export default function Rapports() {
     const { user } = useAuth();
-    const canEdit = user?.role === "admin" || user?.role === "editeur";
+    const canEdit = user?.role === "admin" || user?.role === "editeur" || user?.role === "ti";
     const today = new Date().toISOString().slice(0, 10);
     const [dateDebut, setDateDebut] = useState(today);
     const [dateFin, setDateFin] = useState(today);

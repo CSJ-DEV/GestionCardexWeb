@@ -124,9 +124,19 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> dict:
 
 def require_role(*allowed_roles):
     """Crée une dépendance qui n'autorise que les rôles donnés.
-    'admin' implique également 'ti' (super-utilisateur technique).
+
+    Règle métier : le rôle TI est un super-utilisateur technique avec accès
+    complet à l'application — il est automatiquement autorisé partout où
+    admin ou editeur le sont. Le rôle admin est de son côté autorisé partout
+    où editeur l'est (hiérarchie de privilèges).
     """
     expanded = set(allowed_roles)
+    # Hiérarchie : admin ⊃ editeur (admin couvre éditeur)
+    if "editeur" in expanded:
+        expanded.add("admin")
+    # TI = super-utilisateur : couvre tout
+    if expanded & {"admin", "editeur"}:
+        expanded.add("ti")
     if "admin" in expanded:
         expanded.add("ti")
 

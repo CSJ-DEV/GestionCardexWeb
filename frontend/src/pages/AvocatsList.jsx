@@ -38,7 +38,7 @@ const PAGE_SIZE = 25;
 
 export default function AvocatsList() {
     const { user } = useAuth();
-    const canEdit = user?.role === "admin" || user?.role === "editeur";
+    const canEdit = user?.role === "admin" || user?.role === "editeur" || user?.role === "ti";
     const isAdmin = user?.role === "admin";
     const [items, setItems] = useState([]);
     const [total, setTotal] = useState(0);

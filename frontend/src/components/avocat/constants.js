@@ -34,7 +34,7 @@ export const EMPTY_MEGA = {
 // `required` ajoute un astérisque rouge à droite du label.
 export const Field = ({ label, children, required = false }) => (
     <div className="space-y-1.5">
-        <Label className="text-xs font-medium text-slate-700">
+        <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
             {label}
             {required && (
                 <span className="text-red-600 ml-0.5" aria-label="champ obligatoire">*</span>

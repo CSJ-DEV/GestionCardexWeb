@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { Lock } from "lucide-react";
 import { EMPTY_AVOCAT, EMPTY_MEGA } from "./avocat/constants";
 import { IdentificationTab } from "./avocat/IdentificationTab";
 import { AdressesTab } from "./avocat/AdressesTab";
@@ -11,6 +12,27 @@ import { InhabTab } from "./avocat/InhabTab";
 import { MegaTab } from "./avocat/MegaTab";
 import { WebTab } from "./avocat/WebTab";
 import { HistoriqueTab } from "./avocat/HistoriqueTab";
+
+// Style des onglets : style "classeur" avec distinction nette actif / disponible / verrouillé.
+// - Actif : fond blanc, bordure bottom bleue épaisse, texte bleu en gras
+// - Disponible (inactif) : texte slate-700, hover bleu pâle
+// - Désactivé (disabled) : texte slate-300, fond rayé subtil, cursor not-allowed
+const TAB_CLASS = `
+    relative inline-flex items-center justify-center
+    h-11 px-4 py-2 rounded-md rounded-b-none
+    text-xs font-bold uppercase tracking-wider
+    border-b-[3px] border-transparent
+    text-slate-600 bg-slate-50/50 hover:bg-slate-100 hover:text-slate-900
+    transition-all
+    data-[state=active]:bg-white
+    data-[state=active]:text-[#0033A0]
+    data-[state=active]:border-b-[#0033A0]
+    data-[state=active]:shadow-sm
+    data-[state=active]:-mb-[2px]
+    disabled:text-slate-300 disabled:bg-slate-50 disabled:cursor-not-allowed
+    disabled:hover:bg-slate-50 disabled:hover:text-slate-300
+    disabled:border-b-transparent disabled:opacity-100
+`;
 
 // Champs gérés par l'onglet Web (séparés de l'Identification pour les flags dirty)
 const WEB_KEYS = ["codeusager", "factweb", "confweb"];
@@ -259,33 +281,52 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                     <SheetTitle className="font-display text-2xl tracking-tight">
                         {isEditing ? `${form.prenom} ${form.nom} (${form.code})` : "Nouvel avocat"}
                     </SheetTitle>
-                    <SheetDescription>Fiche complète — fidèle à GestionCardex VB</SheetDescription>
                 </SheetHeader>
 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
-                    <TabsList className={`grid w-full ${tabsCount === 6 ? "grid-cols-6" : "grid-cols-5"}`}>
-                        <TabsTrigger value="ident" data-testid="tab-ident">
+                    <TabsList
+                        className={`
+                            grid w-full h-auto p-0 gap-1 bg-transparent
+                            border-b-2 border-slate-200 rounded-none
+                            ${tabsCount === 6 ? "grid-cols-6" : "grid-cols-5"}
+                        `}
+                    >
+                        <TabsTrigger value="ident" data-testid="tab-ident" className={TAB_CLASS}>
                             Identification
                             <DirtyDot visible={identDirty} testId="dirty-ident" />
                         </TabsTrigger>
-                        <TabsTrigger value="adr" disabled={!isEditing} data-testid="tab-adr">
-                            Adresses {adresses.length > 0 && `(${adresses.length})`}
+                        <TabsTrigger value="adr" disabled={!isEditing} data-testid="tab-adr" className={TAB_CLASS}>
+                            Adresses {adresses.length > 0 && (
+                                <span className="ml-1 text-[10px] font-bold bg-[#0033A0] text-white px-1.5 py-0.5 rounded-full">
+                                    {adresses.length}
+                                </span>
+                            )}
                             <DirtyDot visible={adresseDirty} testId="dirty-adr" />
                         </TabsTrigger>
-                        <TabsTrigger value="inhab" disabled={!isEditing} data-testid="tab-inhab">
-                            Inhabilité {inhabs.length > 0 && `(${inhabs.length})`}
+                        <TabsTrigger value="inhab" disabled={!isEditing} data-testid="tab-inhab" className={TAB_CLASS}>
+                            Inhabilité {inhabs.length > 0 && (
+                                <span className="ml-1 text-[10px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded-full">
+                                    {inhabs.length}
+                                </span>
+                            )}
                             <DirtyDot visible={inhabDirty} testId="dirty-inhab" />
                         </TabsTrigger>
-                        <TabsTrigger value="mega" disabled={!isEditing || !avocat?.mega} data-testid="tab-mega">
+                        <TabsTrigger value="mega" disabled={!isEditing || !avocat?.mega} data-testid="tab-mega" className={TAB_CLASS}>
                             Méga
+                            {!avocat?.mega && isEditing && (
+                                <Lock className="w-3 h-3 ml-1 opacity-60" />
+                            )}
                             <DirtyDot visible={megaDirty && !!avocat?.mega} testId="dirty-mega" />
                         </TabsTrigger>
-                        <TabsTrigger value="web" disabled={!isEditing || !avocat?.factweb} data-testid="tab-web">
+                        <TabsTrigger value="web" disabled={!isEditing || !avocat?.factweb} data-testid="tab-web" className={TAB_CLASS}>
                             Web
+                            {!avocat?.factweb && isEditing && (
+                                <Lock className="w-3 h-3 ml-1 opacity-60" />
+                            )}
                             <DirtyDot visible={webDirty && !!avocat?.factweb} testId="dirty-web" />
                         </TabsTrigger>
                         {isAdmin && (
-                            <TabsTrigger value="hist" disabled={!isEditing} data-testid="tab-hist">
+                            <TabsTrigger value="hist" disabled={!isEditing} data-testid="tab-hist" className={TAB_CLASS}>
                                 Historique
                             </TabsTrigger>
                         )}

@@ -140,6 +140,12 @@ class AvocatUpdate(BaseModel):
 
 class AvocatOut(AvocatBase):
     model_config = ConfigDict(from_attributes=True, extra="ignore")
+    # En sortie, on tolère des `nom`/`prenom` vides : certaines fiches legacy
+    # contiennent uniquement des espaces (colonnes CHAR(N) padded) qui
+    # deviennent "" après `_s()` côté audit.py. La contrainte `min_length=1`
+    # reste appliquée à `AvocatCreate` pour les nouvelles fiches.
+    nom: str = Field("", max_length=80)
+    prenom: str = Field("", max_length=80)
     id: str
     created_at: str
     updated_at: str

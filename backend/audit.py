@@ -96,12 +96,21 @@ def avocat_to_dict(a: Avocat, db: Optional[Session] = None) -> dict:
     Le frontend attend des clés modernes (`actif`, `annee_barreau`, `adresse`...)
     qui n'existent pas en base. On les déduit ici des colonnes legacy.
     """
+    # type_code legacy : pour les fiches anciennes la colonne `type_code` peut
+    # être vide (CHAR(1) jamais renseigné) → on déduit le type à partir du
+    # préfixe du `code` (P00963 → "P", A00012 → "A", N20001 → "N").
+    raw_type = _s(a.type_code)
+    if not raw_type and a.code:
+        first = str(a.code).strip().upper()[:1]
+        raw_type = first if first in ("A", "P", "N") else "A"
+    elif not raw_type:
+        raw_type = "A"
     return {
         # Pas de colonne `id` en legacy — on expose le `code` sous ce nom pour
         # garder l'API stable côté frontend.
         "id": _s(a.code),
         "code": _s(a.code),
-        "type_code": _s(a.type_code) or "A",
+        "type_code": raw_type,
         "nom": _s(a.nom),
         "prenom": _s(a.prenom),
         "sectbar": _s(a.sectbar),

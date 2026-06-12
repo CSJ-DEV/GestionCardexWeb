@@ -13,7 +13,7 @@ from audit import mandat_to_dict
 from database import get_db
 from models import Avocat, Mandat
 from schemas import MandatBase, MandatUpdate
-from security import get_current_user, now_local, require_role
+from security import get_current_user, now_local, require_role, trunc_usermodif
 
 router = APIRouter(prefix="/mandats", tags=["mandats"])
 
@@ -59,7 +59,7 @@ def create_mandat(payload: MandatBase, user: dict = Depends(require_role("admin"
                date_emission=_parse_date(payload.date_emission),
                numero=payload.numero, groupe=payload.groupe,
                commentaire=payload.commentaire or "",
-               usermodif=user.get("email", ""), created_at=now, updated_at=now)
+               usermodif=trunc_usermodif(user.get("email", "")), created_at=now, updated_at=now)
     db.add(m)
     db.commit()
     db.refresh(m)

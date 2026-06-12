@@ -147,6 +147,17 @@ def require_role(*allowed_roles):
     return checker
 
 
+# Limite défensive pour la colonne `usermodif` legacy (taille variable selon la table).
+# Le DBA peut élargir la colonne ; on tronque côté app pour ne jamais déclencher
+# l'erreur SQL « String or binary data would be truncated » sur un email long.
+USERMODIF_MAX = 50
+
+
+def trunc_usermodif(email: str | None) -> str:
+    """Retourne l'email tronqué à USERMODIF_MAX caractères (safe pour la BD legacy)."""
+    return (email or "")[:USERMODIF_MAX]
+
+
 def funcValidNoAssSoc(no: str) -> bool:
     """Validation Luhn du NAS canadien (port direct du VB legacy)."""
     if not no:

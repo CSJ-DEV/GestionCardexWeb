@@ -373,3 +373,35 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 3. Vérifier dans l'App Registration → Token configuration que le claim `roles` est bien inclus dans les ID tokens (par défaut oui pour les App Roles).
 4. Tester en cliquant le bouton « Se connecter avec Microsoft » sur la prod.
 
+
+
+## 2026-02-12 — Correctifs P0 + Adresses / Web courriel
+
+**P0 — Truncation SQL sur Avocats.usermodif (RÉSOLU)**
+- Cause : avec Entra ID, `user.email` (ex. `jveratudela@csj.qc.ca`, 20 c.) dépassait la limite legacy de la colonne `Avocats.usermodif` (CHAR(10)/VARCHAR(15)) → `String or binary data would be truncated` à chaque création/modif d'avocat en prod.
+- Décision DBA : élargir la colonne à VARCHAR(50) côté SQL. **Action utilisateur appliquée.**
+- Côté app (défense en profondeur) : ajout de `security.trunc_usermodif()` (`USERMODIF_MAX = 50`) et application systématique à TOUS les endroits qui écrivent `usermodif` (`routers/avocats.py` create + update + adresse upsert, `routers/mega_inhab.py` mega update / reset-passwords / clear-passwords, `routers/adresses.py` create + update, `routers/mandats.py` create).
+- Test backend (curl) validé : `POST /api/avocats` retourne 201 sans erreur.
+
+**Bug — adresse vide créée à la sauvegarde d'un nouvel avocat (RÉSOLU)**
+- Cause : `EMPTY_AVOCAT.adresse.province = "QC"` (default front-end) → `any(payload.adresse.model_dump().values())` renvoyait `True` même quand tous les champs substantiels étaient vides → upsert d'une adresse fantôme « QC, — ».
+- Fix : dans `create_avocat`, on ne crée l'adresse que si **au moins un** champ substantiel est rempli (`address`, `adresse2`, `adresse3`, `ville`, `codepostal`, `telephone`, `telephone2`, `fax`, `email`). `province` et autres defaults ne déclenchent plus la création.
+- Test curl validé : POST avocat avec `{adresse:{province:"QC"}}` → la liste d'adresses ressort vide.
+
+**Courriel obligatoire — onglet Adresses (FAIT)**
+- `AdressesTab.jsx` : `Field label="Courriel" required` (astérisque rouge) ; validation `!email.trim() → "Le courriel est obligatoire"` puis fallback regex `isValidEmail`. Bloque l'enregistrement si vide ou invalide.
+
+**Onglet Web — pré-remplissage adresse courriel courante (FAIT)**
+- `WebTab.jsx` reçoit désormais `adresses` du parent. `defaultEmail` est calculé en priorité depuis l'adresse marquée `courant=true` dans la liste fraîchement chargée, avec fallback sur `avocat.adresse.email`. Le dialog « Envoyer par courriel » et celui de « Réinitialisation des mots de passe » pré-remplissent ainsi l'adresse de l'adresse courante actuelle (et pas un snapshot périmé).
+
+**Fichiers modifiés**
+- Backend : `security.py`, `routers/avocats.py`, `routers/mega_inhab.py`, `routers/adresses.py`, `routers/mandats.py`
+- Frontend : `components/avocat/AdressesTab.jsx`, `components/avocat/WebTab.jsx`, `components/AvocatSheet.jsx`
+
+**Tests réalisés**
+- Lint Python + JS : 0 erreur.
+- Smoke API curl : create avocat sans adresse / avec adresse → OK.
+- Smoke frontend (login screen rendu, app démarre).
+
+**Action utilisateur**
+- Confirmer que le `ALTER TABLE` `Avocats.usermodif` → VARCHAR(50) a bien été appliqué sur la base CardAvo en prod.

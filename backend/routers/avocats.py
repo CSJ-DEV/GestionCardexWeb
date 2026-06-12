@@ -18,7 +18,7 @@ from models import Avocat, Adresse, InfoMega, Inhpra, Mandat, InfoDistrict, bool
 from schemas import (
     AvocatCreate, AvocatUpdate, AvocatOut, AvocatsListOut, StatsOut,
 )
-from security import funcValidNoAssSoc, get_current_user, now_local, require_role
+from security import funcValidNoAssSoc, get_current_user, now_local, require_role, trunc_usermodif as _trunc_usermodif
 
 logger = logging.getLogger("gestioncardex")
 router = APIRouter(prefix="/avocats", tags=["avocats"])
@@ -38,6 +38,9 @@ def _generate_avocat_code(db: Session, type_code: str) -> str:
         except (ValueError, TypeError):
             continue
     return f"{type_code}{next_num:05d}"
+
+
+# Limite défensive pour la colonne `usermodif` : voir `security.trunc_usermodif`.
 
 
 def _create_or_update_main_address(db: Session, a: Avocat, data: dict, user_email: str) -> None:
@@ -67,7 +70,7 @@ def _create_or_update_main_address(db: Session, a: Avocat, data: dict, user_emai
         adr.adremail = data.get("email") or ""
     adr.updated_at = now
     adr.datemodif = now
-    adr.usermodif = user_email
+    adr.usermodif = _trunc_usermodif(user_email)
     db.flush()
     if adr.noseq is not None:
         a.adrcour = adr.noseq
@@ -238,14 +241,23 @@ def create_avocat(payload: AvocatCreate,
             surveil=bool_to_yn(payload.surveil),
             neq=payload.neq or "", codeusager=codeusager_value,
             created_at=now, updated_at=now, datemodif=now,
-            usermodif=user.get("email", ""),
+            usermodif=_trunc_usermodif(user.get("email", "")),
         )
         try:
             db.add(a)
             db.commit()
             db.refresh(a)
-            if payload.adresse and any(payload.adresse.model_dump().values()):
-                _create_or_update_main_address(db, a, payload.adresse.model_dump(), user.get("email", ""))
+            # On ne crée une adresse que si l'utilisateur a réellement saisi
+            # des données substantielles. Les valeurs par défaut comme
+            # `province="QC"` (front-end) ou `country` ne suffisent pas à
+            # déclencher la création d'une adresse vide.
+            if payload.adresse:
+                adr_data = payload.adresse.model_dump()
+                substantive_fields = ("address", "adresse2", "adresse3", "ville",
+                                      "codepostal", "telephone", "telephone2",
+                                      "fax", "email")
+                if any((adr_data.get(f) or "").strip() for f in substantive_fields):
+                    _create_or_update_main_address(db, a, adr_data, user.get("email", ""))
             # L'identifiant logique d'un avocat est désormais son `code`.
             write_audit(db, code, "create", user.get("email", ""),
                         f"Création de la fiche {code} — {payload.nom}, {payload.prenom}")
@@ -310,7 +322,7 @@ def update_avocat(avocat_id: str, payload: AvocatUpdate,
     now = now_local()
     a.updated_at = now
     a.datemodif = now
-    a.usermodif = user.get("email", "")
+    a.usermodif = _trunc_usermodif(user.get("email", ""))
     db.commit()
     db.refresh(a)
     if changed:

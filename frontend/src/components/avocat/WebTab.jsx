@@ -53,7 +53,7 @@ const PasswordRow = ({ label, isSet, value, visible, isTI, onToggle, onCopy }) =
     </div>
 );
 
-export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
+export const WebTab = ({ readOnly, form, upd, avocatId, avocat, adresses, onSaved }) => {
     const { user } = useAuth();
     const isTI = user?.role === "ti";
     // TI est super-utilisateur technique (peut tout faire en plus de révéler les mdp).
@@ -70,7 +70,14 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, onSaved }) => {
     const [emailEnabled, setEmailEnabled] = useState(false);
     const [resetDialogOpen, setResetDialogOpen] = useState(false);
     const [sendByEmail, setSendByEmail] = useState(true);
-    const defaultEmail = (avocat?.adresse?.email || "").trim();
+    // Courriel par défaut = celui de l'adresse marquée "Courante" dans la liste
+    // d'adresses fraîchement chargée (préféré) ou, à défaut, celui exposé par
+    // `avocat.adresse` (snapshot retourné par l'API au chargement de la fiche).
+    const defaultEmail = (
+        (Array.isArray(adresses) && adresses.find((a) => a.courant)?.email)
+        || avocat?.adresse?.email
+        || ""
+    ).trim();
     const [emailTarget, setEmailTarget] = useState(defaultEmail);
 
     // Dialog d'envoi de la lettre seule (sans reset)

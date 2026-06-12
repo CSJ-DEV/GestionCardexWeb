@@ -370,6 +370,7 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
                         <WebTab
                             readOnly={readOnly} form={form} upd={upd}
                             avocatId={avocatId} avocat={avocat}
+                            adresses={adresses}
                             onSaved={onSaved}
                         />
                     </TabsContent>

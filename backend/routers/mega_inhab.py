@@ -12,7 +12,7 @@ from audit import write_audit, mega_to_dict, inhab_to_dict
 from database import get_db
 from models import Avocat, Adresse, InfoMega, InfoDistrict, Inhpra, LetterConfig, bool_to_yn
 from schemas import InfoMegaIn, InhabIn
-from security import get_current_user, now_local, require_role
+from security import get_current_user, now_local, require_role, trunc_usermodif
 import mailer
 from routers.letters import _get_email_template_raw
 
@@ -99,7 +99,7 @@ def upsert_mega(avocat_id: str, payload: InfoMegaIn,
     m.dateinsc = _parse_date(payload.dateinsc)
     m.mega = "O"
     m.datemodif = now
-    m.usermodif = user.get("email", "")
+    m.usermodif = trunc_usermodif(user.get("email", ""))
 
     if avo.code:
         db.query(InfoDistrict).filter_by(code=avo.code).delete()
@@ -277,7 +277,7 @@ def reset_passwords(avocat_id: str,
     avo.motpasse2 = mp2
     avo.datemodif = now
     avo.updated_at = now
-    avo.usermodif = user.get("email", "")
+    avo.usermodif = trunc_usermodif(user.get("email", ""))
     db.commit()
     write_audit(db, avocat_id, "pwd_reset", user.get("email", ""),
                 "Réinitialisation des mots de passe Web (motpasse1 + motpasse2)")
@@ -358,7 +358,7 @@ def clear_passwords(avocat_id: str,
     avo.motpasse2 = ""
     avo.updated_at = now_local()
     avo.datemodif = avo.updated_at
-    avo.usermodif = user.get("email", "")
+    avo.usermodif = trunc_usermodif(user.get("email", ""))
     db.commit()
     write_audit(db, avocat_id, "pwd_clear", user.get("email", ""),
                 "Effacement des mots de passe Web")

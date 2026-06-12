@@ -11,7 +11,7 @@ from audit import write_audit, adresse_to_dict
 from database import get_db
 from models import Avocat, Adresse, bool_to_yn
 from schemas import AdresseModel
-from security import get_current_user, now_local, require_role
+from security import get_current_user, now_local, require_role, trunc_usermodif
 
 router = APIRouter(prefix="/avocats", tags=["adresses"])
 
@@ -55,7 +55,7 @@ def create_adresse(avocat_id: str, payload: AdresseModel, courant: bool = False,
         courant=bool_to_yn(courant),
         dateadr=now, datemodif=now,
         created_at=now, updated_at=now,
-        usermodif=user.get("email", ""),
+        usermodif=trunc_usermodif(user.get("email", "")),
     )
     db.add(adr)
     db.flush()
@@ -96,7 +96,7 @@ def update_adresse(avocat_id: str, adresse_id: str, payload: AdresseModel, coura
     adr.courant = bool_to_yn(courant)
     adr.updated_at = now
     adr.datemodif = now
-    adr.usermodif = user.get("email", "")
+    adr.usermodif = trunc_usermodif(user.get("email", ""))
     if courant:
         (db.query(Adresse).filter(Adresse.code == avo.code, Adresse.RowId != adr.RowId)
            .update({"courant": "N"}))

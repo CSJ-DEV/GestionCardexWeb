@@ -37,7 +37,8 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
         if (!isValidTelephone(editAdr?.telephone)) next.telephone = "Format requis : 514-555-1234 (10 chiffres)";
         if (!isValidTelephone(editAdr?.telephone2)) next.telephone2 = "Format requis : 514-555-1234 (10 chiffres)";
         if (!isValidTelephone(editAdr?.fax)) next.fax = "Format requis : 514-555-1234 (10 chiffres)";
-        if (!isValidEmail(editAdr?.email)) next.email = "Adresse courriel invalide";
+        if (!(editAdr?.email || "").trim()) next.email = "Le courriel est obligatoire";
+        else if (!isValidEmail(editAdr?.email)) next.email = "Adresse courriel invalide";
         setErrors(next);
         return Object.keys(next).length === 0;
     };
@@ -212,7 +213,7 @@ export const AdressesTab = ({ readOnly, adresses, editAdr, setEditAdr, onSave, o
                             />
                             {errors.fax && <FieldError>{errors.fax}</FieldError>}
                         </Field>
-                        <Field label="Courriel">
+                        <Field label="Courriel" required>
                             <Input
                                 type="email"
                                 value={editAdr.email || ""}

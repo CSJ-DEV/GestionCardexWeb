@@ -420,58 +420,6 @@ class TestRapportsPDF:
         assert r.content[:4] == b"%PDF", f"{path}: not a PDF, got {r.content[:20]!r}"
 
 
-# ---------- Connexions ----------
-class TestConnexions:
-    def test_list_admin(self, admin):
-        r = admin.get(f"{BASE_URL}/api/connexions", timeout=15)
-        assert r.status_code == 200
-        items = r.json()
-        assert any(c.get("is_primary") for c in items), "expected at least one is_primary connexion"
-
-    def test_list_ti_can_access(self, ti):
-        r = ti.get(f"{BASE_URL}/api/connexions", timeout=15)
-        assert r.status_code == 200
-
-    def test_primary_readonly_except_description(self, admin):
-        r = admin.get(f"{BASE_URL}/api/connexions", timeout=15)
-        primary = next((c for c in r.json() if c.get("is_primary")), None)
-        assert primary is not None
-        # try changing server (not description) → 403
-        rb = admin.put(f"{BASE_URL}/api/connexions/{primary['id']}",
-                       json={"server": "newhost.example.com"}, timeout=15)
-        assert rb.status_code == 403, rb.text
-        # description ok
-        ro = admin.put(f"{BASE_URL}/api/connexions/{primary['id']}",
-                       json={"description": "Updated description"}, timeout=15)
-        assert ro.status_code == 200, ro.text
-
-    def test_primary_test_ok(self, admin):
-        r = admin.get(f"{BASE_URL}/api/connexions", timeout=15)
-        primary = next((c for c in r.json() if c.get("is_primary")), None)
-        assert primary is not None
-        rt = admin.post(f"{BASE_URL}/api/connexions/{primary['id']}/test", timeout=30)
-        assert rt.status_code == 200
-        d = rt.json()
-        assert d.get("ok") is True, f"connection test failed: {d}"
-
-    def test_primary_download_sqlite(self, admin):
-        r = admin.get(f"{BASE_URL}/api/connexions", timeout=15)
-        primary = next((c for c in r.json() if c.get("is_primary")
-                       and c.get("type") == "sqlite"), None)
-        assert primary is not None, "expected primary sqlite connexion"
-        rd = admin.get(f"{BASE_URL}/api/connexions/{primary['id']}/download", timeout=30)
-        assert rd.status_code == 200
-        assert rd.headers.get("content-type", "").startswith("application/x-sqlite3")
-        # SQLite file magic
-        assert rd.content[:16].startswith(b"SQLite format 3")
-
-    def test_primary_cannot_delete(self, admin):
-        r = admin.get(f"{BASE_URL}/api/connexions", timeout=15)
-        primary = next((c for c in r.json() if c.get("is_primary")), None)
-        rd = admin.delete(f"{BASE_URL}/api/connexions/{primary['id']}", timeout=15)
-        assert rd.status_code == 403
-
-
 # ---------- Users CRUD + roles ----------
 class TestUsersAndRoles:
     def test_user_crud_admin(self, admin, created_users):
@@ -504,8 +452,6 @@ class TestUsersAndRoles:
         r = sl.post(f"{BASE_URL}/api/avocats",
                     json={"nom": "X", "prenom": "Y", "type_code": "A"}, timeout=15)
         assert r.status_code == 403, r.text
-        # Lecteur cannot access connexions
-        assert sl.get(f"{BASE_URL}/api/connexions", timeout=15).status_code == 403
 
     def test_editeur_cannot_delete_avocat(self, admin, created_users, created_avocats):
         email = f"ed_{uuid.uuid4().hex[:8]}@example.com"

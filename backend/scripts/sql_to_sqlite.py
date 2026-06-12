@@ -275,13 +275,13 @@ def main():
 
     print(f"\n📊 Total : {total_tables} tables, {total_rows} rows")
 
-    # Ajouter les 3 tables propres à l'app web dans sCardAvo (idempotent)
+    # Ajouter les tables propres à l'app web dans sCardAvo (idempotent)
     _add_app_tables(out_dir / "sCardAvo.db")
-    print("  ➕ AppUsers / AuditLog / Connexions ajoutées dans sCardAvo.db")
+    print("  ➕ AppUsers / AuditLog ajoutées dans sCardAvo.db")
 
 
 def _add_app_tables(db_path: Path) -> None:
-    """Ajoute les 3 tables introduites par l'app web (auth, audit, connexions)."""
+    """Ajoute les tables introduites par l'app web (auth, audit)."""
     if not db_path.exists():
         return
     conn = sqlite3.connect(db_path)
@@ -293,6 +293,7 @@ def _add_app_tables(db_path: Path) -> None:
             "password_hash" TEXT NOT NULL,
             "name" TEXT,
             "role" TEXT NOT NULL CHECK ("role" IN ('admin','ti','editeur','lecteur')),
+            "auth_provider" TEXT NOT NULL DEFAULT 'local',
             "created_at" TEXT NOT NULL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS "UX_AppUsers_email" ON "AppUsers"("email");
@@ -306,22 +307,6 @@ def _add_app_tables(db_path: Path) -> None:
             "timestamp" TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS "IX_AuditLog_avocat_ts" ON "AuditLog"("avocat_id", "timestamp" DESC);
-
-        CREATE TABLE IF NOT EXISTS "Connexions" (
-            "id" TEXT NOT NULL PRIMARY KEY,
-            "name" TEXT NOT NULL,
-            "type" TEXT NOT NULL CHECK ("type" IN ('mongodb','sqlserver','sqlite')),
-            "server" TEXT NOT NULL,
-            "port" INTEGER,
-            "user" TEXT,
-            "database" TEXT,
-            "description" TEXT,
-            "password_enc" TEXT,
-            "is_primary" INTEGER NOT NULL DEFAULT 0,
-            "created_at" TEXT NOT NULL,
-            "updated_at" TEXT NOT NULL
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS "UX_Connexions_name" ON "Connexions"("name");
     ''')
     conn.commit()
     conn.close()

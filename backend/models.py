@@ -152,22 +152,6 @@ class AuditLog(Base):
     timestamp = Column(DateTime, nullable=False, index=True)
 
 
-class Connexion(Base):
-    __tablename__ = "Connexions"
-    id = Column(String(36), primary_key=True)
-    name = Column(String(100), unique=True, nullable=False)
-    type = Column(String(20), nullable=False)
-    server = Column(String(200), nullable=False)
-    port = Column(Integer)
-    user = Column(String(100))
-    database = Column(String(100))
-    description = Column(Text)
-    password_enc = Column(String(500))
-    is_primary = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, nullable=False)
-    updated_at = Column(DateTime, nullable=False)
-
-
 class Mandat(Base):
     __tablename__ = "Mandats"
     id = Column(String(36), primary_key=True)

@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { LayoutGrid, Users, LogOut, Search, ShieldCheck, FileText, Database, UserCircle2, PenLine, FileSearch } from "lucide-react";
+import { LayoutGrid, Users, LogOut, Search, ShieldCheck, FileText, UserCircle2, PenLine, FileSearch } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +31,6 @@ export default function Layout() {
         { to: "/avocats", icon: Users, label: "Avocats", testId: "nav-avocats" },
         { to: "/rapports", icon: FileText, label: "Rapports", testId: "nav-rapports" },
         ...(isAdminLike ? [{ to: "/utilisateurs", icon: ShieldCheck, label: "Utilisateurs", testId: "nav-users" }] : []),
-        ...(isTi ? [{ to: "/connexions", icon: Database, label: "Connexions", testId: "nav-connexions" }] : []),
         ...(isTi ? [{ to: "/mandats", icon: FileSearch, label: "Mandats", testId: "nav-mandats" }] : []),
         ...(isTi ? [{ to: "/parametres/lettres", icon: PenLine, label: "Lettre — signataire", testId: "nav-letter-config" }] : []),
     ];

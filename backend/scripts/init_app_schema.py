@@ -10,7 +10,7 @@
      created_at, updated_at.
    - `inhpra` : id (TEXT UUID), avocat_id, created_at, updated_at.
 3. Crée la table `Mandats` (introduite par l'app web).
-4. Crée les tables `AppUsers`, `AuditLog`, `Connexions` (idempotent).
+4. Crée les tables `AppUsers`, `AuditLog`, `Mandats` (idempotent).
 
 Ce script est ré-exécutable autant de fois que nécessaire.
 """
@@ -126,22 +126,6 @@ def migrate_card_avo() -> None:
         );
         CREATE INDEX IF NOT EXISTS "IX_AuditLog_avocat_ts" ON "AuditLog"("avocat_id", "timestamp" DESC);
 
-        CREATE TABLE IF NOT EXISTS "Connexions" (
-            "id" TEXT NOT NULL PRIMARY KEY,
-            "name" TEXT NOT NULL,
-            "type" TEXT NOT NULL CHECK ("type" IN ('mongodb','sqlserver','sqlite')),
-            "server" TEXT NOT NULL,
-            "port" INTEGER,
-            "user" TEXT,
-            "database" TEXT,
-            "description" TEXT,
-            "password_enc" TEXT,
-            "is_primary" INTEGER NOT NULL DEFAULT 0,
-            "created_at" TEXT NOT NULL,
-            "updated_at" TEXT NOT NULL
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS "UX_Connexions_name" ON "Connexions"("name");
-
         -- Table Mandats : nouvelle entité introduite par l'app web (Registre97/98)
         CREATE TABLE IF NOT EXISTS "Mandats" (
             "id" TEXT NOT NULL PRIMARY KEY,
@@ -160,7 +144,7 @@ def migrate_card_avo() -> None:
         CREATE INDEX IF NOT EXISTS "IX_Mandats_avocat" ON "Mandats"("avocat_id");
         CREATE INDEX IF NOT EXISTS "IX_Mandats_dates" ON "Mandats"("date_ordonnance");
     ''')
-    print("  ✅ AppUsers / AuditLog / Connexions / Mandats : tables OK")
+    print("  ✅ AppUsers / AuditLog / Mandats : tables OK")
 
     # ----- Index utiles sur les colonnes app -----
     try:

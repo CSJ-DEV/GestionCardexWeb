@@ -218,13 +218,3 @@ class MandatUpdate(BaseModel):
     numero: Optional[str] = None
     groupe: Optional[str] = None
     commentaire: Optional[str] = None
-
-
-# ---------- Connexions ----------
-class ConnexionTestPayload(BaseModel):
-    type: str
-    server: str
-    port: Optional[int] = None
-    user: Optional[str] = ""
-    password: Optional[str] = ""
-    database: Optional[str] = ""

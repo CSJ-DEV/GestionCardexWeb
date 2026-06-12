@@ -210,11 +210,6 @@ def test_users_list(auth_session):
     assert isinstance(r.json(), list)
 
 
-def test_connexions_list(auth_session):
-    r = auth_session.get(f"{BASE_URL}/api/connexions?page=1&page_size=10", timeout=20)
-    assert r.status_code == 200
-
-
 def test_change_password_rejects_wrong_current(auth_session):
     r = auth_session.put(f"{BASE_URL}/api/auth/change-password",
                          json={"current_password": "WRONG_PWD!!", "new_password": "Whatever123!"},

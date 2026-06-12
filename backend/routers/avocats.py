@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from audit import write_audit, avocat_to_dict
 from database import get_db, get_secondary_engine
 from models import Avocat, Adresse, InfoMega, Inhpra, Mandat, InfoDistrict, bool_to_yn
+from routers.mega_inhab import _generate_unique_motpasse
 from schemas import (
     AvocatCreate, AvocatUpdate, AvocatOut, AvocatsListOut, StatsOut,
 )
@@ -261,6 +262,18 @@ def create_avocat(payload: AvocatCreate,
             db.add(a)
             db.commit()
             db.refresh(a)
+            # Génération automatique des mots de passe Web pour les avocats P/N
+            # avec l'onglet Web habilité (factweb=O). Les permanents (A) n'ont
+            # jamais d'accès Web. Aucun courriel n'est envoyé ici — l'admin
+            # pourra le faire via le bouton dédié de l'onglet Web.
+            if factweb_on and type_code in ("P", "N"):
+                a.motpasse1 = _generate_unique_motpasse(db, Avocat.motpasse1)
+                a.motpasse2 = _generate_unique_motpasse(db, Avocat.motpasse2)
+                a.datemodif = now
+                a.updated_at = now
+                a.usermodif = _trunc_usermodif(user.get("email", ""))
+                db.commit()
+                db.refresh(a)
             # On ne crée une adresse que si l'utilisateur a réellement saisi
             # des données substantielles. Les valeurs par défaut comme
             # `province="QC"` (front-end) ou `country` ne suffisent pas à

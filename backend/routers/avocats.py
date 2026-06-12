@@ -220,6 +220,17 @@ def create_avocat(payload: AvocatCreate,
     if type_code not in {"A", "N", "P"}:
         raise HTTPException(status_code=422, detail="type_code invalide (A/N/P)")
 
+    # Règle métier : un avocat permanent (type A) ne peut avoir que le statut
+    # « actif ». On force les autres flags à false pour éviter toute incohérence
+    # même si le client contourne le verrouillage UI.
+    if type_code == "A":
+        payload.mega = False
+        payload.payable = False
+        payload.factweb = False
+        payload.confweb = False
+        payload.depodirect = False
+        payload.surveil = False
+
     now = now_local()
     factweb_on = bool(payload.factweb)
 
@@ -292,6 +303,16 @@ def update_avocat(avocat_id: str, payload: AvocatUpdate,
         if nas_clean and not funcValidNoAssSoc(nas_clean):
             raise HTTPException(status_code=422, detail="Numéro NAS invalide (algorithme Luhn)")
         data["nas"] = nas_clean
+
+    # Règle métier : un avocat permanent (type A — déterminé par le `type_code`
+    # demandé ou, à défaut, le préfixe du `code` legacy) ne peut avoir que le
+    # statut « actif ». On force les autres flags à false dans la charge utile
+    # même si le client a contourné le verrouillage UI.
+    effective_type = (data.get("type_code") or a.type_code or "").upper()
+    is_permanent = effective_type == "A" or (a.code or "").upper().startswith("A")
+    if is_permanent:
+        for k in ("mega", "payable", "factweb", "confweb", "depodirect", "surveil"):
+            data[k] = False
 
     yn_fields = {"mega", "payable", "depodirect", "factweb", "confweb", "surveil"}
     changed = []

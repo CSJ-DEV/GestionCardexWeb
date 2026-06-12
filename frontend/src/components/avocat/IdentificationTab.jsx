@@ -114,44 +114,67 @@ export const IdentificationTab = ({
 
         <Separator />
         <div className="overline">Statuts</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {STATUTS.map((o) => {
-                // Cas spéciaux Méga & Facturation web : l'onglet correspondant
-                // ne sera accessible qu'après sauvegarde de l'identification.
-                const megaPendingSave = o.k === "mega" && isEditing && !!form.mega && !savedMega;
-                const megaPendingDisable = o.k === "mega" && isEditing && !form.mega && !!savedMega;
-                const webPendingSave = o.k === "factweb" && isEditing && !!form.factweb && !savedFactweb;
-                const webPendingDisable = o.k === "factweb" && isEditing && !form.factweb && !!savedFactweb;
-                return (
-                    <div key={o.k} className="flex flex-col border border-slate-200 rounded-md px-3 py-2">
-                        <div className="flex items-center justify-between">
-                            <Label className="text-sm">{o.l}</Label>
-                            <Switch checked={!!form[o.k]} onCheckedChange={(v) => upd(o.k, v)} disabled={readOnly} data-testid={`avocat-switch-${o.k}`} />
-                        </div>
-                        {megaPendingSave && (
-                            <p className="text-xs text-amber-700 mt-1.5" data-testid="mega-pending-hint">
-                                ⚠ Cliquez sur « Mettre à jour » pour activer l'onglet Méga.
-                            </p>
-                        )}
-                        {megaPendingDisable && (
-                            <p className="text-xs text-amber-700 mt-1.5" data-testid="mega-pending-hint">
-                                ⚠ Cliquez sur « Mettre à jour » pour désactiver l'onglet Méga.
-                            </p>
-                        )}
-                        {webPendingSave && (
-                            <p className="text-xs text-amber-700 mt-1.5" data-testid="web-pending-hint">
-                                ⚠ Cliquez sur « Mettre à jour » pour activer l'onglet Web.
-                            </p>
-                        )}
-                        {webPendingDisable && (
-                            <p className="text-xs text-amber-700 mt-1.5" data-testid="web-pending-hint">
-                                ⚠ Cliquez sur « Mettre à jour » pour désactiver l'onglet Web.
-                            </p>
-                        )}
+        {/* Règle métier : un avocat de type A (permanent) ne peut avoir que le
+            statut « Actif ». Tous les autres flags doivent rester false et le
+            switch est désactivé. */}
+        {(() => {
+            const isPermanent = (form.type_code === "A")
+                || (form.code || "").toUpperCase().startsWith("A");
+            return (
+                <>
+                    {isPermanent && (
+                        <p className="text-xs text-slate-500 -mt-1" data-testid="permanent-hint">
+                            Avocat permanent (type A) — seul le statut « Actif » est applicable.
+                        </p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {STATUTS.map((o) => {
+                            const lockedForPermanent = isPermanent && o.k !== "actif";
+                            // Cas spéciaux Méga & Facturation web : l'onglet correspondant
+                            // ne sera accessible qu'après sauvegarde de l'identification.
+                            const megaPendingSave = o.k === "mega" && isEditing && !!form.mega && !savedMega;
+                            const megaPendingDisable = o.k === "mega" && isEditing && !form.mega && !!savedMega;
+                            const webPendingSave = o.k === "factweb" && isEditing && !!form.factweb && !savedFactweb;
+                            const webPendingDisable = o.k === "factweb" && isEditing && !form.factweb && !!savedFactweb;
+                            const checked = lockedForPermanent ? false : !!form[o.k];
+                            return (
+                                <div key={o.k} className={`flex flex-col border border-slate-200 rounded-md px-3 py-2 ${lockedForPermanent ? "opacity-50 bg-slate-50" : ""}`}>
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-sm">{o.l}</Label>
+                                        <Switch
+                                            checked={checked}
+                                            onCheckedChange={(v) => upd(o.k, v)}
+                                            disabled={readOnly || lockedForPermanent}
+                                            data-testid={`avocat-switch-${o.k}`}
+                                        />
+                                    </div>
+                                    {megaPendingSave && !lockedForPermanent && (
+                                        <p className="text-xs text-amber-700 mt-1.5" data-testid="mega-pending-hint">
+                                            ⚠ Cliquez sur « Mettre à jour » pour activer l'onglet Méga.
+                                        </p>
+                                    )}
+                                    {megaPendingDisable && !lockedForPermanent && (
+                                        <p className="text-xs text-amber-700 mt-1.5" data-testid="mega-pending-hint">
+                                            ⚠ Cliquez sur « Mettre à jour » pour désactiver l'onglet Méga.
+                                        </p>
+                                    )}
+                                    {webPendingSave && !lockedForPermanent && (
+                                        <p className="text-xs text-amber-700 mt-1.5" data-testid="web-pending-hint">
+                                            ⚠ Cliquez sur « Mettre à jour » pour activer l'onglet Web.
+                                        </p>
+                                    )}
+                                    {webPendingDisable && !lockedForPermanent && (
+                                        <p className="text-xs text-amber-700 mt-1.5" data-testid="web-pending-hint">
+                                            ⚠ Cliquez sur « Mettre à jour » pour désactiver l'onglet Web.
+                                        </p>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
-                );
-            })}
-        </div>
+                </>
+            );
+        })()}
 
         <Separator />
         <Field label="Commentaires">

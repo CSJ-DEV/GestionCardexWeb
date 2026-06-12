@@ -159,9 +159,19 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
 
     const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+    // Statuts forcés à false pour un avocat de type A (permanent) — seul
+    // « actif » reste librement éditable. Cohérent avec le verrouillage UI.
+    const PERMANENT_FORCED_FALSE = ["mega", "payable", "factweb", "confweb", "depodirect", "surveil"];
+
     const onTypeChange = (t) => {
         // Plus de pré-fetch — le code définitif est attribué côté serveur au save
-        upd("type_code", t);
+        setForm((f) => {
+            const next = { ...f, type_code: t };
+            if (t === "A") {
+                PERMANENT_FORCED_FALSE.forEach((k) => { next[k] = false; });
+            }
+            return next;
+        });
     };
 
     const handleSubmit = async (e) => {
@@ -182,17 +192,24 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         }
         setSaving(true);
         try {
+            // Garde de cohérence : si avocat permanent (type A ou code commençant
+            // par A), on force tous les flags non-Actif à false avant l'envoi.
+            const isPermanent = (form.type_code === "A")
+                || (form.code || "").toUpperCase().startsWith("A");
+            const safeForm = isPermanent
+                ? { ...form, ...Object.fromEntries(PERMANENT_FORCED_FALSE.map((k) => [k, false])) }
+                : form;
             let data;
             if (isEditing) {
-                const { id: _i, created_at: _c, updated_at: _u, usermodif: _m, ...payload } = form;
+                const { id: _i, created_at: _c, updated_at: _u, usermodif: _m, ...payload } = safeForm;
                 ({ data } = await api.put(`/avocats/${avocat.id}`, payload));
                 toast.success("Avocat mis à jour");
             } else {
-                ({ data } = await api.post("/avocats", form));
+                ({ data } = await api.post("/avocats", safeForm));
                 toast.success("Avocat créé");
             }
             // Reset baseline ident+web après succès → invalide les useMemo dirty
-            setBaseline((b) => ({ ...b, ident: stable(pickIdent(form)), web: stable(pickWeb(form)) }));
+            setBaseline((b) => ({ ...b, ident: stable(pickIdent(safeForm)), web: stable(pickWeb(safeForm)) }));
             onSaved?.({ updatedAvocat: data });
         } catch (err) {
             toast.error(formatApiError(err.response?.data?.detail) || "Erreur");

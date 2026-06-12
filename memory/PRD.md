@@ -427,3 +427,30 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 **Fichiers** : Backend `routers/avocats.py`, `audit.py` ; Frontend `components/avocat/formatters.js`, `components/avocat/IdentificationTab.jsx`, `components/AvocatSheet.jsx`.
 
 **Tests** : lint OK, curl CREATE/UPDATE NAS (valide + invalide) OK, screenshot formulaire avec feedback inline rouge OK.
+
+
+## 2026-02-12 (suite 2) — Verrouillage statuts pour avocats permanents (type A)
+
+**Règle métier** : un avocat permanent (`type_code = "A"` ou `code` commençant par `A`) ne peut avoir comme statut éditable que « Actif ». Les autres (Payable, Facturation web, Confirmation par courriel, Dépôt direct, Méga, En attente) doivent être désactivés et leur valeur forcée à `false`.
+
+**Frontend (`IdentificationTab.jsx`)**
+- Détection `isPermanent` basée sur `form.type_code === "A"` OU `form.code` commençant par `A`.
+- Bandeau d'info « Avocat permanent (type A) — seul le statut « Actif » est applicable. » au-dessus de la grille.
+- Pour chaque option ≠ `actif` : `Switch` désactivé (`disabled={lockedForPermanent}`), valeur affichée toujours `false`, conteneur en `opacity-50 bg-slate-50`.
+- Les hints Méga/Web sont masqués pour ces options verrouillées.
+
+**Frontend (`AvocatSheet.jsx`)**
+- `onTypeChange(t)` : si l'utilisateur bascule sur type A, on remet à `false` les 6 flags concernés (mega, payable, factweb, confweb, depodirect, surveil) en même temps que `type_code`.
+- `handleSubmit` : garde finale — si avocat est permanent, on construit `safeForm` qui remet ces 6 flags à `false` avant POST/PUT.
+
+**Backend (`routers/avocats.py`)** — défense en profondeur
+- `create_avocat` : si `type_code == "A"`, on force `payload.{mega, payable, factweb, confweb, depodirect, surveil} = False` avant insertion.
+- `update_avocat` : si `effective_type == "A"` (ou `a.code.upper().startswith("A")`), on remplace ces flags par `False` dans `data` avant l'application aux colonnes. Toute tentative client de contourner l'UI est ainsi neutralisée.
+
+**Tests**
+- Lint Python + JS : 0 erreur.
+- Curl CREATE A* avec `mega/payable/factweb/...=true` → tous retournés à `false` ✓
+- Curl UPDATE A* avec `mega=true, factweb=true` → ignorés, retournent `false` ✓
+- Screenshot frontend : « Nouvel avocat » avec type A → seul « Actif » est ON et cliquable, les 6 autres sont grisés.
+
+**Fichiers** : Backend `routers/avocats.py` ; Frontend `components/avocat/IdentificationTab.jsx`, `components/AvocatSheet.jsx`.

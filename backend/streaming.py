@@ -31,15 +31,17 @@ def chunk_bytes(data: bytes, chunk_size: int = CHUNK_SIZE) -> Iterator[bytes]:
         yield data[i:i + chunk_size]
 
 
-def pdf_streaming_headers(filename: str, total_bytes: int) -> dict:
+def pdf_streaming_headers(filename: str, total_bytes: int, *, inline: bool = True) -> dict:
     """Headers HTTP standardisés pour la livraison d'un PDF en streaming.
 
     - Content-Length : permet au navigateur d'afficher une barre de progression.
-    - Content-Disposition : attachment + nom de fichier proposé.
+    - Content-Disposition : ``inline`` par défaut (aperçu dans le navigateur)
+      ou ``attachment`` (téléchargement forcé) selon le contexte.
     - Cache-Control : empêche le cache navigateur (les rapports sont datés).
     """
+    disposition = "inline" if inline else "attachment"
     return {
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
         "Content-Length": str(total_bytes),
         "Cache-Control": "no-store, max-age=0",
         "X-Accel-Buffering": "no",  # désactive le buffering nginx → vrai streaming

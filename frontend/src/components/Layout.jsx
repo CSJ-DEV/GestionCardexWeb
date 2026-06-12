@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { LayoutGrid, Users, LogOut, Search, ShieldCheck, FileText, UserCircle2, PenLine, FileSearch } from "lucide-react";
+import { LayoutGrid, Users, LogOut, Search, ShieldCheck, FileText, UserCircle2, PenLine, FileSearch, Server } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ export default function Layout() {
     const isAdminLike = user?.role === "admin" || user?.role === "ti";
     const isTi = user?.role === "ti";
     const [versionInfo, setVersionInfo] = useState(null);
+    const [serverInfo, setServerInfo] = useState(null);
 
     // Charge la version applicative (visible TI uniquement)
     useEffect(() => {
@@ -25,6 +26,16 @@ export default function Layout() {
             .catch(() => { /* silencieux */ });
         return () => { cancelled = true; };
     }, [isTi]);
+
+    // Charge l'info serveur courante (visible tous rôles)
+    useEffect(() => {
+        if (!user) return;
+        let cancelled = false;
+        api.get("/system/server-info")
+            .then(({ data }) => { if (!cancelled) setServerInfo(data); })
+            .catch(() => { /* silencieux — pas bloquant */ });
+        return () => { cancelled = true; };
+    }, [user]);
 
     const navItems = [
         { to: "/", icon: LayoutGrid, label: "Tableau de bord", testId: "nav-dashboard" },
@@ -97,6 +108,21 @@ export default function Layout() {
                         <Badge className="mb-3 bg-slate-100 text-slate-700 hover:bg-slate-100 rounded-md text-[10px]">
                             {roleLabel[user.role] || user.role}
                         </Badge>
+                    )}
+                    {serverInfo && (
+                        <div
+                            className="mb-2 flex items-center gap-1.5 text-[10px] text-slate-500 truncate"
+                            data-testid="server-info"
+                            title={`Connecté à ${serverInfo.label} (${serverInfo.env})`}
+                        >
+                            <Server size={11} className="shrink-0" />
+                            <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
+                                serverInfo.env === "prod" ? "bg-emerald-500" : "bg-amber-500"
+                            }`} />
+                            <span className="truncate">
+                                {serverInfo.env === "prod" ? "PROD" : "DEV"} · {serverInfo.label}
+                            </span>
+                        </div>
                     )}
                     <Button
                         variant="outline"

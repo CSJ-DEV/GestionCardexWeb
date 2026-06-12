@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import text
 
-from database import describe_databases, engine, get_secondary_engine
+from database import describe_databases, describe_server_context, engine, get_secondary_engine
 from security import get_current_user, require_role
 import mailer
 
@@ -33,6 +33,23 @@ def email_status(_=Depends(get_current_user)):
         "sender": os.getenv("ACS_SENDER_EMAIL", ""),
         "has_connection_string": bool(os.getenv("ACS_CONNECTION_STRING")),
     }
+
+
+@router.get("/server-info")
+def server_info(_=Depends(get_current_user)):
+    """Résumé court du serveur de base de données CardAvo auquel l'app est
+    connectée. Affiché dans la barre de navigation au-dessus du bouton de
+    déconnexion pour rappeler à l'utilisateur l'environnement actif (dev / prod).
+
+    Aucun secret n'est exposé : on ne renvoie que le host, le nom de base et
+    une étiquette d'affichage. Accessible à tout utilisateur connecté."""
+    info = describe_server_context()
+    # Heuristique simple pour l'étiquette environnement : SQLite = dev,
+    # SQL Server = prod (sauf si APP_ENV explicite).
+    env = os.getenv("APP_ENV", "").lower()
+    if not env:
+        env = "dev" if info["kind"] == "sqlite" else "prod"
+    return {**info, "env": env}
 
 
 class EmailTestIn(BaseModel):

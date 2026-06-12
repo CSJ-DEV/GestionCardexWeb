@@ -198,6 +198,48 @@ def describe_databases() -> dict[str, str]:
     return out
 
 
+def describe_server_context() -> dict:
+    """Retourne un résumé court de l'environnement de connexion CardAvo.
+
+    Sert à l'UI pour afficher « connecté à <serveur> » sous le bouton de
+    déconnexion. Ne révèle jamais d'identifiant ni de mot de passe.
+
+    Retour :
+      - kind : 'sqlite' | 'sqlserver' | 'other'
+      - label : chaîne courte affichable (ex. « SQLite local (dev) » ou
+                « SRV01 / CardAvo »)
+      - host : nom du serveur (sans port) ou 'localhost' pour SQLite
+      - database : nom logique de la base
+    """
+    url = DATABASE_URL or ""
+    if url.startswith("sqlite"):
+        # ex. sqlite:////app/backend/sqlite_dbs/CardAvo.db
+        db_file = url.split("/")[-1] or "CardAvo.db"
+        return {
+            "kind": "sqlite",
+            "label": f"SQLite local · {db_file}",
+            "host": "localhost",
+            "database": db_file,
+        }
+    if "://" in url and "@" in url:
+        # ex. mssql+pymssql://user:pwd@host:1433/CardAvo
+        try:
+            _, rest = url.split("://", 1)
+            _, host_db = rest.rsplit("@", 1)
+            host_part, _, db_part = host_db.partition("/")
+            host_only = host_part.split(":")[0]
+            db_name = db_part or os.getenv("DB_CARDAVO", "CardAvo")
+            return {
+                "kind": "sqlserver",
+                "label": f"{host_only} · {db_name}",
+                "host": host_only,
+                "database": db_name,
+            }
+        except ValueError:
+            pass
+    return {"kind": "other", "label": "Inconnu", "host": "", "database": ""}
+
+
 def _mask(url: str) -> str:
     """Masque le mot de passe dans une URL SQLAlchemy (ne pas logger en clair)."""
     if "://" not in url or "@" not in url:

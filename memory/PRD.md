@@ -454,3 +454,16 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 - Screenshot frontend : « Nouvel avocat » avec type A → seul « Actif » est ON et cliquable, les 6 autres sont grisés.
 
 **Fichiers** : Backend `routers/avocats.py` ; Frontend `components/avocat/IdentificationTab.jsx`, `components/AvocatSheet.jsx`.
+
+
+## 2026-02-12 (mise à jour Azure) — Variables FVI confirmées
+
+Utilisateur confirme que les variables d'environnement suivantes sont désormais configurées sur Azure App Service :
+- `FVI_SERVER`, `FVI_DATABASE`, `FVI_USER`, `FVI_PASSWORD`
+
+Conséquences attendues en production :
+- `routers/mandats_themis.py` : recherche `Fvi.avocats` opérationnelle (plus de fallback SQLite).
+- `routers/avocats.py get_avocat_taxes` : lecture TPS/TVQ (`cNoTax1`/`cNoTax2`) effective.
+- Badge « Fvi Web » de l'onglet Mandats : doit s'afficher correctement pour les avocats référencés dans Fvi.
+
+L'item P1 « FVI variables manquantes en Azure » est **clos**. À valider par l'utilisateur sur la prod si un comportement reste anormal.

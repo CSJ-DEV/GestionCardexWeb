@@ -198,7 +198,6 @@ export const WebTab = ({ readOnly, form, upd, avocatId, avocat, adresses, onSave
             }
             toast.success(successMsg, {
                 duration: 20000,
-                action: { label: "Copier les deux", onClick: () => copyToClipboard(`${data.motpasse1} / ${data.motpasse2}`, "Mots de passe") },
             });
             // Si TI : pré-charge les valeurs pour révélation immédiate
             if (isTI) { setPwd1(data.motpasse1); setPwd2(data.motpasse2); }

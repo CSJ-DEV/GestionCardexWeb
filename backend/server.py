@@ -144,7 +144,8 @@ def on_startup():
             if not existing:
                 db.add(AppUser(id=str(uuid.uuid4()), email=admin_email,
                                password_hash=hash_password(admin_password),
-                               name="Administrateur", role="admin", created_at=now_local()))
+                               name="Administrateur", role="admin",
+                               auth_provider="local", created_at=now_local()))
                 db.commit()
                 logger.info(f"Admin créé: {admin_email}")
             elif not verify_password(admin_password, existing.password_hash):
@@ -158,7 +159,8 @@ def on_startup():
             if not db.query(AppUser).filter_by(email=ti_email).first():
                 db.add(AppUser(id=str(uuid.uuid4()), email=ti_email,
                                password_hash=hash_password(ti_password),
-                               name="Technicien TI", role="ti", created_at=now_local()))
+                               name="Technicien TI", role="ti",
+                               auth_provider="local", created_at=now_local()))
                 db.commit()
                 logger.info(f"Compte TI créé: {ti_email}")
 
@@ -170,7 +172,8 @@ def on_startup():
                 if not db.query(AppUser).filter_by(email=email).first():
                     db.add(AppUser(id=str(uuid.uuid4()), email=email,
                                    password_hash=hash_password(pwd),
-                                   name=name, role=role, created_at=now_local()))
+                                   name=name, role=role,
+                                   auth_provider="local", created_at=now_local()))
                     db.commit()
                     logger.info(f"Compte de test créé: {email} ({role})")
         else:

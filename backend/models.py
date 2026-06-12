@@ -135,6 +135,10 @@ class AppUser(Base):
     password_hash = Column(String(100), nullable=False)
     name = Column(String(200))
     role = Column(String(20), nullable=False)
+    # NOT NULL en prod (DBA) : indique l'origine du compte. Valeurs : 'local' ou 'entra'.
+    # La logique applicative continue de dériver le provider depuis `password_hash`
+    # (sentinel ENTRA_SSO_HASH) ; cette colonne sert d'audit / requêtes BI.
+    auth_provider = Column(String(20), nullable=False, default="local")
     created_at = Column(DateTime, nullable=False)
 
 

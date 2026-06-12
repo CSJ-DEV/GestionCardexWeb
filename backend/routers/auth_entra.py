@@ -187,6 +187,7 @@ def entra_callback(request: Request, db: Session = Depends(get_db)):
             password_hash=ENTRA_SSO_HASH,
             name=name or email.split("@")[0],
             role=local_role,
+            auth_provider="entra",
             created_at=now_local(),
         )
         db.add(user)
@@ -199,10 +200,13 @@ def entra_callback(request: Request, db: Session = Depends(get_db)):
             logger.info("Entra ID — MAJ rôle %s : %s → %s", email, user.role, local_role)
             user.role = local_role
         # Si un compte local existait déjà sous le même email, on le bascule
-        # en compte SSO : le mdp local devient inutilisable pour cet utilisateur.
+        # en compte SSO : le mdp local devient inutilisable pour cet utilisateur
+        # et la colonne `auth_provider` reflète l'origine effective du compte.
         if user.password_hash != ENTRA_SSO_HASH:
             logger.info("Entra ID — Conversion compte local → SSO pour %s", email)
             user.password_hash = ENTRA_SSO_HASH
+        if user.auth_provider != "entra":
+            user.auth_provider = "entra"
     db.commit()
     db.refresh(user)
 

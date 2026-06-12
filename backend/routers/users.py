@@ -35,7 +35,8 @@ def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))
     if db.query(AppUser).filter_by(email=email).first():
         raise HTTPException(status_code=409, detail="Courriel déjà utilisé")
     u = AppUser(id=str(uuid.uuid4()), email=email, name=payload.name, role=payload.role,
-                password_hash=hash_password(payload.password), created_at=now_local())
+                password_hash=hash_password(payload.password), auth_provider="local",
+                created_at=now_local())
     db.add(u)
     db.commit()
     return {"id": u.id, "email": email, "name": payload.name, "role": payload.role,

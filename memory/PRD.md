@@ -405,3 +405,25 @@ Sections : Article 486.3, 486.7 (et probablement 672, 684 selon Méga)
 
 **Action utilisateur**
 - Confirmer que le `ALTER TABLE` `Avocats.usermodif` → VARCHAR(50) a bien été appliqué sur la base CardAvo en prod.
+
+
+## 2026-02-12 (suite) — NAS + nettoyage champs legacy
+
+**Bug : NAS invalide accepté à la modification (RÉSOLU)**
+- Cause : `POST /api/avocats` validait bien le NAS via `funcValidNoAssSoc` (Luhn) mais `PUT /api/avocats/{id}` ne validait rien → un avocat existant pouvait être modifié avec `999999999`.
+- Fix backend (`routers/avocats.py update_avocat`) : ajout d'une garde symétrique au POST. On nettoie le NAS (`isdigit()`), applique Luhn, retourne 422 si invalide.
+- Fix défensif du POST : on nettoie aussi le NAS reçu (tolère espaces/tirets) avant validation et stockage.
+- ✅ Test curl complet (CREATE 999 → 422, CREATE 046 454 286 → 201 stocké `046454286`, UPDATE 999 → 422).
+
+**Formatage NAS `### ### ###` (FAIT)**
+- `formatters.js` : ajout de `formatNAS()` et `isValidNAS()` (Luhn JS, port du backend).
+- `IdentificationTab.jsx` : champ NAS affiché formaté `### ### ###` pendant la saisie, stocké en interne sur 9 chiffres bruts. Bordure rouge + message d'erreur inline en temps réel (échec Luhn ou < 9 chiffres).
+- `AvocatSheet.jsx handleSubmit` : blocage du submit si NAS rempli mais invalide + toast + bascule auto vers l'onglet Identification.
+
+**Espaces résiduels CHAR(N) SQL Server (RÉSOLU)**
+- Cause : les colonnes legacy `CHAR(N)` retournent des chaînes complétées d'espaces, affichées tel quel dans les cellules du formulaire.
+- Fix backend (`audit.py`) : ajout de `_s(v)` helper (`str(v).strip()` avec garde None) et application dans `avocat_to_dict`, `_fetch_adresse_courante`, `adresse_to_dict`, `mega_to_dict`, `inhab_to_dict`, `mandat_to_dict`.
+
+**Fichiers** : Backend `routers/avocats.py`, `audit.py` ; Frontend `components/avocat/formatters.js`, `components/avocat/IdentificationTab.jsx`, `components/AvocatSheet.jsx`.
+
+**Tests** : lint OK, curl CREATE/UPDATE NAS (valide + invalide) OK, screenshot formulaire avec feedback inline rouge OK.

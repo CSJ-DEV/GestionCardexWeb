@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Field } from "./constants";
 import { DateInput } from "./DateInput";
+import { formatNAS, isValidNAS } from "./formatters";
 
 const STATUTS = [
     { k: "actif", l: "Actif" }, { k: "payable", l: "Payable" },
@@ -57,7 +58,30 @@ export const IdentificationTab = ({
                 <Input value={form.codebar} onChange={(e) => upd("codebar", e.target.value)} disabled={readOnly} className="rounded-md font-mono" />
             </Field>
             <Field label="NAS (validation Luhn)">
-                <Input value={form.nas} onChange={(e) => upd("nas", e.target.value.replace(/\D/g, "").slice(0, 9))} disabled={readOnly} maxLength={9} className="rounded-md font-mono" data-testid="avocat-input-nas" />
+                {(() => {
+                    const nasDigits = String(form.nas || "").replace(/\D/g, "");
+                    const nasInvalid = nasDigits.length > 0 && !isValidNAS(nasDigits);
+                    return (
+                        <>
+                            <Input
+                                value={formatNAS(form.nas)}
+                                onChange={(e) => upd("nas", e.target.value.replace(/\D/g, "").slice(0, 9))}
+                                disabled={readOnly}
+                                maxLength={11}
+                                placeholder="### ### ###"
+                                className={`rounded-md font-mono ${nasInvalid ? "border-red-500" : ""}`}
+                                data-testid="avocat-input-nas"
+                            />
+                            {nasInvalid && (
+                                <p className="text-xs text-red-600 mt-1" data-testid="err-nas">
+                                    {nasDigits.length === 9
+                                        ? "Numéro d'assurance sociale invalide (échec Luhn)"
+                                        : "Le NAS doit comporter 9 chiffres"}
+                                </p>
+                            )}
+                        </>
+                    );
+                })()}
             </Field>
             <Field label="NEQ">
                 <Input value={form.neq} onChange={(e) => upd("neq", e.target.value)} disabled={readOnly} maxLength={10} className="rounded-md font-mono" />

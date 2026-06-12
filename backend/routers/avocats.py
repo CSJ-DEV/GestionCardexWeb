@@ -211,8 +211,11 @@ def get_avocat_taxes(
 def create_avocat(payload: AvocatCreate,
                   user: dict = Depends(require_role("admin", "editeur")),
                   db: Session = Depends(get_db)):
-    if payload.nas and not funcValidNoAssSoc(payload.nas):
-        raise HTTPException(status_code=422, detail="Numéro NAS invalide (algorithme Luhn)")
+    if payload.nas:
+        nas_clean = "".join(ch for ch in payload.nas if ch.isdigit())
+        if nas_clean and not funcValidNoAssSoc(nas_clean):
+            raise HTTPException(status_code=422, detail="Numéro NAS invalide (algorithme Luhn)")
+        payload.nas = nas_clean
     type_code = (payload.type_code or "A").upper()
     if type_code not in {"A", "N", "P"}:
         raise HTTPException(status_code=422, detail="type_code invalide (A/N/P)")
@@ -281,6 +284,14 @@ def update_avocat(avocat_id: str, payload: AvocatUpdate,
     data = payload.model_dump(exclude_unset=True)
     if not data:
         raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+
+    # Validation NAS (Luhn) — symétrique avec create_avocat. Sans cette garde,
+    # un NAS invalide (ex. 999999999) pouvait passer en update.
+    if "nas" in data and data.get("nas"):
+        nas_clean = "".join(ch for ch in str(data["nas"]) if ch.isdigit())
+        if nas_clean and not funcValidNoAssSoc(nas_clean):
+            raise HTTPException(status_code=422, detail="Numéro NAS invalide (algorithme Luhn)")
+        data["nas"] = nas_clean
 
     yn_fields = {"mega", "payable", "depodirect", "factweb", "confweb", "surveil"}
     changed = []

@@ -12,6 +12,7 @@ import { InhabTab } from "./avocat/InhabTab";
 import { MegaTab } from "./avocat/MegaTab";
 import { WebTab } from "./avocat/WebTab";
 import { HistoriqueTab } from "./avocat/HistoriqueTab";
+import { isValidNAS } from "./avocat/formatters";
 
 // Style des onglets : style "classeur" avec distinction nette actif / disponible / verrouillé.
 // - Actif : fond blanc, bordure bottom bleue épaisse, texte bleu en gras
@@ -168,6 +169,11 @@ export default function AvocatSheet({ open, onOpenChange, avocat, onSaved }) {
         // En création, le code est attribué côté serveur ; on n'exige plus le champ
         if (!form.nom || !form.prenom) {
             toast.error("Nom et prénom sont requis");
+            return;
+        }
+        if (form.nas && !isValidNAS(form.nas)) {
+            toast.error("Numéro d'assurance sociale invalide");
+            setActiveTab("ident");
             return;
         }
         if (isEditing && !form.code) {
